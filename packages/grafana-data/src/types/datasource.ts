@@ -187,6 +187,11 @@ export abstract class DataSourceApi<
   readonly type: string;
 
   /**
+   *  Set in constructor
+   */
+  readonly uid: string;
+
+  /**
    *  min interval range
    */
   interval?: string;
@@ -196,6 +201,7 @@ export abstract class DataSourceApi<
     this.id = instanceSettings.id;
     this.type = instanceSettings.type;
     this.meta = {} as DataSourcePluginMeta;
+    this.uid = instanceSettings.uid;
   }
 
   /**
@@ -543,6 +549,7 @@ export interface DataSourceSettings<T extends DataSourceJsonData = DataSourceJso
   name: string;
   typeLogoUrl: string;
   type: string;
+  typeName: string;
   access: string;
   url: string;
   password: string;
@@ -588,6 +595,9 @@ export interface DataSourceInstanceSettings<T extends DataSourceJsonData = DataS
   withCredentials?: boolean;
 }
 
+/**
+ * @deprecated -- use {@link DataSourceInstanceSettings} instead
+ */
 export interface DataSourceSelectItem {
   name: string;
   value: string | null;

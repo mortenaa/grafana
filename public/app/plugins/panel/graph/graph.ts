@@ -25,7 +25,7 @@ import { GraphLegendProps, Legend } from './Legend/Legend';
 
 import { GraphCtrl } from './module';
 import { graphTickFormatter, graphTimeFormat, IconName, MenuItem, MenuItemsGroup } from '@grafana/ui';
-import { getCurrentTheme, provideTheme } from 'app/core/utils/ConfigProvider';
+import { provideTheme } from 'app/core/utils/ConfigProvider';
 import {
   DataFrame,
   DataFrameView,
@@ -284,7 +284,7 @@ class GraphElement {
         };
         const fieldDisplay = getDisplayProcessor({
           field: { config: fieldConfig, type: FieldType.number },
-          theme: getCurrentTheme(),
+          theme: config.theme,
           timeZone: this.dashboard.getTimezone(),
         })(field.values.get(dataIndex));
         linksSupplier = links.length
@@ -743,7 +743,7 @@ class GraphElement {
     };
 
     // Use 'short' format for histogram values
-    this.configureAxisMode(options.xaxis, 'short');
+    this.configureAxisMode(options.xaxis, 'short', null);
   }
 
   addXTableAxis(options: any) {
@@ -794,13 +794,15 @@ class GraphElement {
       this.applyLogScale(options.yaxes[1], data);
       this.configureAxisMode(
         options.yaxes[1],
-        this.panel.percentage && this.panel.stack ? 'percent' : this.panel.yaxes[1].format
+        this.panel.percentage && this.panel.stack ? 'percent' : this.panel.yaxes[1].format,
+        this.panel.yaxes[1].decimals
       );
     }
     this.applyLogScale(options.yaxes[0], data);
     this.configureAxisMode(
       options.yaxes[0],
-      this.panel.percentage && this.panel.stack ? 'percent' : this.panel.yaxes[0].format
+      this.panel.percentage && this.panel.stack ? 'percent' : this.panel.yaxes[0].format,
+      this.panel.yaxes[0].decimals
     );
   }
 
@@ -915,14 +917,19 @@ class GraphElement {
     return ticks;
   }
 
-  configureAxisMode(axis: { tickFormatter: (val: any, axis: any) => string }, format: string) {
+  configureAxisMode(
+    axis: { tickFormatter: (val: any, axis: any) => string },
+    format: string,
+    decimals?: number | null
+  ) {
     axis.tickFormatter = (val, axis) => {
       const formatter = getValueFormat(format);
 
       if (!formatter) {
         throw new Error(`Unit '${format}' is not supported`);
       }
-      return formattedValueToString(formatter(val, axis.tickDecimals, axis.scaledDecimals));
+
+      return formattedValueToString(formatter(val, decimals));
     };
   }
 }

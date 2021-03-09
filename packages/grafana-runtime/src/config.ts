@@ -56,6 +56,7 @@ export class GrafanaBootConfig implements GrafanaConfig {
     meta: false,
     ngalert: false,
     panelLibrary: false,
+    reportVariables: false,
   };
   licenseInfo: LicenseInfo = {} as LicenseInfo;
   rendererAvailable = false;
@@ -68,6 +69,10 @@ export class GrafanaBootConfig implements GrafanaConfig {
     sampleRate: 1,
   };
   marketplaceUrl?: string;
+  expressionsEnabled = false;
+  customTheme?: any;
+  awsAllowedAuthProviders: string[] = [];
+  awsAssumeRoleEnabled = false;
 
   constructor(options: GrafanaBootConfig) {
     this.theme = options.bootData.user.lightTheme ? getTheme(GrafanaThemeType.Light) : getTheme(GrafanaThemeType.Dark);
