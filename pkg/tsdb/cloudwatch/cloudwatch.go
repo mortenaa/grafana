@@ -78,7 +78,7 @@ type cloudWatchExecutor struct {
 }
 
 func (e *cloudWatchExecutor) newSession(region string) (*session.Session, error) {
-	dsInfo := e.getDSInfo(region)
+	dsInfo := e.getAWSDatasourceSettings(region)
 
 	return e.sessions.GetSession(region, *dsInfo)
 }
@@ -276,7 +276,7 @@ func (e *cloudWatchExecutor) executeLogAlertQuery(ctx context.Context, queryCont
 	return response, nil
 }
 
-func (e *cloudWatchExecutor) getDSInfo(region string) *awsds.AWSDatasourceSettings {
+func (e *cloudWatchExecutor) getAWSDatasourceSettings(region string) *awsds.AWSDatasourceSettings {
 	if region == defaultRegion {
 		region = e.DataSource.JsonData.Get("defaultRegion").MustString()
 	}
