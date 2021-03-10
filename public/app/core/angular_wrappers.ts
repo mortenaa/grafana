@@ -26,7 +26,7 @@ import { Footer } from './components/Footer/Footer';
 import { FolderPicker } from 'app/core/components/Select/FolderPicker';
 import { SearchField, SearchResults, SearchResultsFilter, SearchWrapper } from '../features/search';
 import { TimePickerSettings } from 'app/features/dashboard/components/DashboardSettings/TimePickerSettings';
-import QueryEditor from 'app/plugins/datasource/grafana-azure-monitor-datasource/components/QueryEditor';
+import QueryEditor from 'app/plugins/datasource/grafana-azure-monitor-datasource/components/QueryEditor/QueryEditor';
 
 const { SecretFormField } = LegacyForms;
 
