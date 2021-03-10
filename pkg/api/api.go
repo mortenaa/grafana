@@ -287,13 +287,13 @@ func (hs *HTTPServer) registerRoutes() {
 
 		// Folders
 		apiRoute.Group("/folders", func(folderRoute routing.RouteRegister) {
-			folderRoute.Get("/", routing.Wrap(GetFolders))
-			folderRoute.Get("/id/:id", routing.Wrap(GetFolderByID))
+			folderRoute.Get("/", routing.Wrap(hs.GetFolders))
+			folderRoute.Get("/id/:id", routing.Wrap(hs.GetFolderByID))
 			folderRoute.Post("/", bind(models.CreateFolderCommand{}), routing.Wrap(hs.CreateFolder))
 
 			folderRoute.Group("/:uid", func(folderUidRoute routing.RouteRegister) {
-				folderUidRoute.Get("/", routing.Wrap(GetFolderByUID))
-				folderUidRoute.Put("/", bind(models.UpdateFolderCommand{}), routing.Wrap(UpdateFolder))
+				folderUidRoute.Get("/", routing.Wrap(hs.GetFolderByUID))
+				folderUidRoute.Put("/", bind(models.UpdateFolderCommand{}), routing.Wrap(hs.UpdateFolder))
 				folderUidRoute.Delete("/", routing.Wrap(hs.DeleteFolder))
 
 				folderUidRoute.Group("/permissions", func(folderPermissionRoute routing.RouteRegister) {
