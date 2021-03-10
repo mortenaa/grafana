@@ -39,16 +39,21 @@ func setupTestEnvironment(t *testing.T, cfg *setting.Cfg) (*macaron.Macaron, *HT
 		})
 	}
 
-	r := &rendering.RenderingService{Cfg: cfg}
-
 	sqlStore := sqlstore.InitTestDB(t)
+	pm := &manager.PluginManager{Cfg: cfg, SQLStore: sqlStore}
+
+	r := &rendering.RenderingService{
+		Cfg:           cfg,
+		PluginManager: pm,
+	}
+
 	hs := &HTTPServer{
 		Cfg:           cfg,
 		Bus:           bus.GetBus(),
 		License:       &licensing.OSSLicensingService{Cfg: cfg},
 		RenderService: r,
 		SQLStore:      sqlStore,
-		PluginManager: &manager.PluginManager{Cfg: cfg, SQLStore: sqlStore},
+		PluginManager: pm,
 	}
 
 	m := macaron.New()

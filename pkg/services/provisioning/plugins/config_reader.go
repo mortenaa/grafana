@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/grafana/grafana/pkg/infra/log"
+	"github.com/grafana/grafana/pkg/plugins"
 	"github.com/grafana/grafana/pkg/plugins/manager"
 	"gopkg.in/yaml.v2"
 )
@@ -18,10 +19,10 @@ type configReader interface {
 
 type configReaderImpl struct {
 	log log.Logger
-	pm  *manager.PluginManager
+	pm  plugins.Manager
 }
 
-func newConfigReader(logger log.Logger, pm *manager.PluginManager) configReader {
+func newConfigReader(logger log.Logger, pm plugins.Manager) configReader {
 	return &configReaderImpl{log: logger, pm: pm}
 }
 
