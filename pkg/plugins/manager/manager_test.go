@@ -18,41 +18,21 @@ import (
 )
 
 func TestPluginManager_Init(t *testing.T) {
-	staticRootPath, err := filepath.Abs("../../../public/")
-	require.NoError(t, err)
-
-	origRootPath := setting.StaticRootPath
-	origRaw := setting.Raw
-	origEnv := setting.Env
-	t.Cleanup(func() {
-		setting.StaticRootPath = origRootPath
-		setting.Raw = origRaw
-		setting.Env = origEnv
-	})
-	setting.StaticRootPath = staticRootPath
-	setting.Raw = ini.Empty()
-	setting.Env = setting.Prod
-
 	t.Run("Base case", func(t *testing.T) {
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				Raw:            ini.Empty(),
-				Env:            setting.Prod,
-				StaticRootPath: staticRootPath,
-				PluginSettings: setting.PluginSettings{
-					"nginx-app": map[string]string{
-						"path": "testdata/test-app",
-					},
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginSettings = setting.PluginSettings{
+				"nginx-app": map[string]string{
+					"path": "testdata/test-app",
 				},
-			},
-		}
+			}
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
 		assert.Empty(t, pm.scanningErrors)
-		assert.Greater(t, len(DataSources), 1)
+		assert.Greater(t, len(pm.dataSources), 1)
 		assert.Greater(t, len(Panels), 1)
-		assert.Equal(t, "app/plugins/datasource/graphite/module", DataSources["graphite"].Module)
+		assert.Equal(t, "app/plugins/datasource/graphite/module", pm.dataSources["graphite"].Module)
 		assert.NotEmpty(t, Apps)
 		assert.Equal(t, "public/plugins/test-app/img/logo_large.png", Apps["test-app"].Info.Logos.Large)
 		assert.Equal(t, "public/plugins/test-app/img/screenshot2.png", Apps["test-app"].Info.Screenshots[1].Path)
@@ -60,7 +40,8 @@ func TestPluginManager_Init(t *testing.T) {
 
 	t.Run("With external back-end plugin lacking signature", func(t *testing.T) {
 		pm := &PluginManager{
-			Cfg: &setting.Cfg{PluginsPath: "testdata/unsigned"},
+			Cfg:         &setting.Cfg{PluginsPath: "testdata/unsigned"},
+			dataSources: map[string]*plugins.DataSourcePlugin{},
 		}
 		err := pm.Init()
 		require.NoError(t, err)
@@ -75,6 +56,7 @@ func TestPluginManager_Init(t *testing.T) {
 				PluginsAllowUnsigned: []string{"test"},
 			},
 			BackendPluginManager: &fakeBackendPluginManager{},
+			dataSources:          map[string]*plugins.DataSourcePlugin{},
 		}
 		err := pm.Init()
 		require.NoError(t, err)
@@ -87,6 +69,7 @@ func TestPluginManager_Init(t *testing.T) {
 			Cfg: &setting.Cfg{
 				PluginsPath: "testdata/invalid-v1-signature",
 			},
+			dataSources: map[string]*plugins.DataSourcePlugin{},
 		}
 		err := pm.Init()
 		require.NoError(t, err)
@@ -101,6 +84,7 @@ func TestPluginManager_Init(t *testing.T) {
 				PluginsPath: "testdata/lacking-files",
 			},
 			BackendPluginManager: fm,
+			dataSources:          map[string]*plugins.DataSourcePlugin{},
 		}
 		err := pm.Init()
 		require.NoError(t, err)
@@ -115,6 +99,7 @@ func TestPluginManager_Init(t *testing.T) {
 				PluginsPath: "testdata/behind-feature-flag",
 			},
 			BackendPluginManager: &fm,
+			dataSources:          map[string]*plugins.DataSourcePlugin{},
 		}
 		err := pm.Init()
 		require.NoError(t, err)
@@ -128,6 +113,7 @@ func TestPluginManager_Init(t *testing.T) {
 			Cfg: &setting.Cfg{
 				PluginsPath: "testdata/duplicate-plugins",
 			},
+			dataSources: map[string]*plugins.DataSourcePlugin{},
 		}
 		err := pm.Init()
 		require.NoError(t, err)
@@ -137,26 +123,23 @@ func TestPluginManager_Init(t *testing.T) {
 	})
 
 	t.Run("With external back-end plugin with valid v2 signature", func(t *testing.T) {
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/valid-v2-signature",
-			},
-			BackendPluginManager: &fakeBackendPluginManager{},
-		}
+		pm := createManager(t, func(manager *PluginManager) {
+			manager.Cfg.PluginsPath = "testdata/valid-v2-signature"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 		require.Empty(t, pm.scanningErrors)
 
-		pluginId := "test"
-		assert.NotNil(t, Plugins[pluginId])
-		assert.Equal(t, "datasource", Plugins[pluginId].Type)
-		assert.Equal(t, "Test", Plugins[pluginId].Name)
-		assert.Equal(t, pluginId, Plugins[pluginId].Id)
-		assert.Equal(t, "1.0.0", Plugins[pluginId].Info.Version)
-		assert.Equal(t, plugins.PluginSignatureValid, Plugins[pluginId].Signature)
-		assert.Equal(t, plugins.GrafanaType, Plugins[pluginId].SignatureType)
-		assert.Equal(t, "Grafana Labs", Plugins[pluginId].SignatureOrg)
-		assert.False(t, Plugins[pluginId].IsCorePlugin)
+		const pluginID = "test"
+		assert.NotNil(t, pm.plugins[pluginID])
+		assert.Equal(t, "datasource", pm.plugins[pluginID].Type)
+		assert.Equal(t, "Test", pm.plugins[pluginID].Name)
+		assert.Equal(t, pluginID, pm.plugins[pluginID].Id)
+		assert.Equal(t, "1.0.0", pm.plugins[pluginID].Info.Version)
+		assert.Equal(t, plugins.PluginSignatureValid, pm.plugins[pluginID].Signature)
+		assert.Equal(t, plugins.GrafanaType, pm.plugins[pluginID].SignatureType)
+		assert.Equal(t, "Grafana Labs", pm.plugins[pluginID].SignatureOrg)
+		assert.False(t, pm.plugins[pluginID].IsCorePlugin)
 	})
 
 	t.Run("With back-end plugin with invalid v2 private signature (mismatched root URL)", func(t *testing.T) {
@@ -166,16 +149,14 @@ func TestPluginManager_Init(t *testing.T) {
 		})
 		setting.AppUrl = "http://localhost:1234"
 
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/valid-v2-pvt-signature",
-			},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/valid-v2-pvt-signature"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
 		assert.Equal(t, []error{fmt.Errorf(`plugin "test" has an invalid signature`)}, pm.scanningErrors)
-		assert.Nil(t, Plugins[("test")])
+		assert.Nil(t, pm.plugins[("test")])
 	})
 
 	t.Run("With back-end plugin with valid v2 private signature", func(t *testing.T) {
@@ -185,26 +166,23 @@ func TestPluginManager_Init(t *testing.T) {
 		})
 		setting.AppUrl = "http://localhost:3000/"
 
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/valid-v2-pvt-signature",
-			},
-			BackendPluginManager: &fakeBackendPluginManager{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/valid-v2-pvt-signature"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 		require.Empty(t, pm.scanningErrors)
 
-		pluginId := "test"
-		assert.NotNil(t, Plugins[pluginId])
-		assert.Equal(t, "datasource", Plugins[pluginId].Type)
-		assert.Equal(t, "Test", Plugins[pluginId].Name)
-		assert.Equal(t, pluginId, Plugins[pluginId].Id)
-		assert.Equal(t, "1.0.0", Plugins[pluginId].Info.Version)
-		assert.Equal(t, plugins.PluginSignatureValid, Plugins[pluginId].Signature)
-		assert.Equal(t, plugins.PrivateType, Plugins[pluginId].SignatureType)
-		assert.Equal(t, "Will Browne", Plugins[pluginId].SignatureOrg)
-		assert.False(t, Plugins[pluginId].IsCorePlugin)
+		const pluginID = "test"
+		assert.NotNil(t, pm.plugins[pluginID])
+		assert.Equal(t, "datasource", pm.plugins[pluginID].Type)
+		assert.Equal(t, "Test", pm.plugins[pluginID].Name)
+		assert.Equal(t, pluginID, pm.plugins[pluginID].Id)
+		assert.Equal(t, "1.0.0", pm.plugins[pluginID].Info.Version)
+		assert.Equal(t, plugins.PluginSignatureValid, pm.plugins[pluginID].Signature)
+		assert.Equal(t, plugins.PrivateType, pm.plugins[pluginID].SignatureType)
+		assert.Equal(t, "Will Browne", pm.plugins[pluginID].SignatureOrg)
+		assert.False(t, pm.plugins[pluginID].IsCorePlugin)
 	})
 
 	t.Run("With back-end plugin with modified v2 signature (missing file from plugin dir)", func(t *testing.T) {
@@ -214,16 +192,13 @@ func TestPluginManager_Init(t *testing.T) {
 		})
 		setting.AppUrl = "http://localhost:3000/"
 
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/invalid-v2-signature",
-			},
-			BackendPluginManager: &fakeBackendPluginManager{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/invalid-v2-signature"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 		assert.Equal(t, []error{fmt.Errorf(`plugin "test"'s signature has been modified`)}, pm.scanningErrors)
-		assert.Nil(t, Plugins[("test")])
+		assert.Nil(t, pm.plugins[("test")])
 	})
 
 	t.Run("With back-end plugin with modified v2 signature (unaccounted file in plugin dir)", func(t *testing.T) {
@@ -233,16 +208,13 @@ func TestPluginManager_Init(t *testing.T) {
 		})
 		setting.AppUrl = "http://localhost:3000/"
 
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/invalid-v2-signature-2",
-			},
-			BackendPluginManager: &fakeBackendPluginManager{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/invalid-v2-signature-2"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 		assert.Equal(t, []error{fmt.Errorf(`plugin "test"'s signature has been modified`)}, pm.scanningErrors)
-		assert.Nil(t, Plugins[("test")])
+		assert.Nil(t, pm.plugins[("test")])
 	})
 }
 
@@ -290,4 +262,26 @@ func (f *fakeBackendPluginManager) CheckHealth(ctx context.Context, pCtx backend
 }
 
 func (f *fakeBackendPluginManager) CallResource(pluginConfig backend.PluginContext, ctx *models.ReqContext, path string) {
+}
+
+func createManager(t *testing.T, cbs ...func(*PluginManager)) *PluginManager {
+	t.Helper()
+
+	staticRootPath, err := filepath.Abs("../../../public/")
+	require.NoError(t, err)
+
+	pm := &PluginManager{
+		Cfg: &setting.Cfg{
+			Raw:            ini.Empty(),
+			Env:            setting.Prod,
+			StaticRootPath: staticRootPath,
+		},
+		BackendPluginManager: &fakeBackendPluginManager{},
+		dataSources:          map[string]*plugins.DataSourcePlugin{},
+	}
+	for _, cb := range cbs {
+		cb(pm)
+	}
+
+	return pm
 }

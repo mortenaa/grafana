@@ -134,22 +134,22 @@ func (pm *PluginManager) Init() error {
 	}
 
 	for _, panel := range Panels {
-		staticRoutes := panel.InitFrontendPlugin()
+		staticRoutes := panel.InitFrontendPlugin(pm.Cfg)
 		StaticRoutes = append(StaticRoutes, staticRoutes...)
 	}
 
 	for _, ds := range pm.dataSources {
-		staticRoutes := ds.InitFrontendPlugin()
+		staticRoutes := ds.InitFrontendPlugin(pm.Cfg)
 		StaticRoutes = append(StaticRoutes, staticRoutes...)
 	}
 
 	for _, app := range Apps {
-		staticRoutes := app.InitApp(Panels, pm.dataSources)
+		staticRoutes := app.InitApp(Panels, pm.dataSources, pm.Cfg)
 		StaticRoutes = append(StaticRoutes, staticRoutes...)
 	}
 
 	if pm.renderer != nil {
-		staticRoutes := pm.renderer.InitFrontendPlugin()
+		staticRoutes := pm.renderer.InitFrontendPlugin(pm.Cfg)
 		StaticRoutes = append(StaticRoutes, staticRoutes...)
 	}
 
