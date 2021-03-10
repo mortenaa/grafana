@@ -39,10 +39,9 @@ func TestPluginManager_Init(t *testing.T) {
 	})
 
 	t.Run("With external back-end plugin lacking signature", func(t *testing.T) {
-		pm := &PluginManager{
-			Cfg:         &setting.Cfg{PluginsPath: "testdata/unsigned"},
-			dataSources: map[string]*plugins.DataSourcePlugin{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/unsigned"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
@@ -50,14 +49,10 @@ func TestPluginManager_Init(t *testing.T) {
 	})
 
 	t.Run("With external unsigned back-end plugin and configuration disabling signature check of this plugin", func(t *testing.T) {
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath:          "testdata/unsigned",
-				PluginsAllowUnsigned: []string{"test"},
-			},
-			BackendPluginManager: &fakeBackendPluginManager{},
-			dataSources:          map[string]*plugins.DataSourcePlugin{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/unsigned"
+			pm.Cfg.PluginsAllowUnsigned = []string{"test"}
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
@@ -65,12 +60,9 @@ func TestPluginManager_Init(t *testing.T) {
 	})
 
 	t.Run("With external back-end plugin with invalid v1 signature", func(t *testing.T) {
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/invalid-v1-signature",
-			},
-			dataSources: map[string]*plugins.DataSourcePlugin{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/invalid-v1-signature"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
@@ -79,13 +71,10 @@ func TestPluginManager_Init(t *testing.T) {
 
 	t.Run("With external back-end plugin lacking files listed in manifest", func(t *testing.T) {
 		fm := &fakeBackendPluginManager{}
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/lacking-files",
-			},
-			BackendPluginManager: fm,
-			dataSources:          map[string]*plugins.DataSourcePlugin{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/lacking-files"
+			pm.BackendPluginManager = fm
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
@@ -94,13 +83,10 @@ func TestPluginManager_Init(t *testing.T) {
 
 	t.Run("Transform plugins should be ignored when expressions feature is off", func(t *testing.T) {
 		fm := fakeBackendPluginManager{}
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/behind-feature-flag",
-			},
-			BackendPluginManager: &fm,
-			dataSources:          map[string]*plugins.DataSourcePlugin{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/behind-feature-flag"
+			pm.BackendPluginManager = &fm
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
@@ -109,12 +95,9 @@ func TestPluginManager_Init(t *testing.T) {
 	})
 
 	t.Run("With nested plugin duplicating parent", func(t *testing.T) {
-		pm := &PluginManager{
-			Cfg: &setting.Cfg{
-				PluginsPath: "testdata/duplicate-plugins",
-			},
-			dataSources: map[string]*plugins.DataSourcePlugin{},
-		}
+		pm := createManager(t, func(pm *PluginManager) {
+			pm.Cfg.PluginsPath = "testdata/duplicate-plugins"
+		})
 		err := pm.Init()
 		require.NoError(t, err)
 
