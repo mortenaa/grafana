@@ -85,9 +85,10 @@ func generateConnectionString(datasource *models.DataSource) (string, error) {
 			Port: "1433",
 		}
 	}
-
-	logger.Debug("Generating connection string", "url", datasource.Url, "host", addr.Host, "port", addr.Port)
 	encrypt := datasource.JsonData.Get("encrypt").MustString("false")
+	tlsSkipVerify := datasource.JsonData.Get("tlsSkipVerify").MustBool(false)
+	hostNameInCertificate := datasource.JsonData.Get("hostNameInCertificate").MustString("")
+	certificate := datasource.JsonData.Get("certificate").MustString("")
 	connStr := fmt.Sprintf("server=%s;port=%s;database=%s;user id=%s;password=%s;",
 		addr.Host,
 		addr.Port,
@@ -96,8 +97,17 @@ func generateConnectionString(datasource *models.DataSource) (string, error) {
 		datasource.DecryptedPassword(),
 	)
 	if encrypt != "false" {
-		connStr += fmt.Sprintf("encrypt=%s;", encrypt)
+		connStr += fmt.Sprintf("encrypt=%s;TrustServerCertificate=%t;", encrypt, tlsSkipVerify)
+		if hostNameInCertificate != "" {
+			connStr += fmt.Sprintf("hostNameInCertificate=%s;", hostNameInCertificate)
+		}
+
+		if certificate != "" {
+			connStr += fmt.Sprintf("certificate=%s;", certificate)
+		}
 	}
+
+	logger.Info("Connecting", "connection", connStr)
 	return connStr, nil
 }
 
