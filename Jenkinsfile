@@ -56,7 +56,7 @@ pipeline {
         stage('Build and Push image') {
             steps {
                 script {
-                    buildAndPushDockerImage('fiks-grafana', [env.CURRENT_VERSION, 'latest'], [], params.isRelease, "fiks-grafana")
+                    buildAndPushDockerImage('fiks-grafana', [env.CURRENT_VERSION, 'latest'], [], params.isRelease, ".")
                 }
             }
         }
