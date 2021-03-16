@@ -1,0 +1,55 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fiks-grafana
+  annotations:
+    description: "Grafana"
+  labels:
+    app: fiks-grafana
+    component: grafana
+    criticality: "KRITISK"
+spec:
+  replicas: {{ default 2 .Values.replicas.grafana }}
+  minReadySeconds: 5
+  revisionHistoryLimit: 1
+  strategy:
+    # indicate which strategy we want for rolling update
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      component: grafana
+  template:
+    metadata:
+      labels:
+        component: grafana
+    spec:
+      containers:
+      - name: fiks-grafana
+        image: "{{ .Values.image.repository }}fiks-grafana:{{ .Values.image.tag }}"
+        resources:
+          limits:
+            memory: "2000Mi"
+          requests:
+            memory: "1500Mi"
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+            port: 4560
+          initialDelaySeconds: 15
+          periodSeconds: 5
+          timeoutSeconds: 1
+          successThreshold: 1
+          failureThreshold: 1
+        livenessProbe:
+          tcpSocket:
+            port: 4560
+          initialDelaySeconds: 240
+          periodSeconds: 5
+          timeoutSeconds: 5
+          successThreshold: 1
+          failureThreshold: 2
+
