@@ -91,7 +91,7 @@ export function graphiteFuncEditor($compile: any, templateSrv: TemplateSrv) {
 
         const $link = $input.prev();
         const $comma = $link.prev('.comma');
-        const newValue = $input.val();
+        const newValue = $input.val() as any;
 
         // remove optional empty params
         if (newValue !== '' || paramDef(paramIndex).optional) {
@@ -165,6 +165,10 @@ export function graphiteFuncEditor($compile: any, templateSrv: TemplateSrv) {
 
       function addElementsAndCompile() {
         $funcLink.appendTo(elem);
+
+        if (func.def.unknown) {
+          elem.addClass('unknown-function');
+        }
 
         const defParams: any = _.clone(func.def.params);
         const lastParam: any = _.last(func.def.params);

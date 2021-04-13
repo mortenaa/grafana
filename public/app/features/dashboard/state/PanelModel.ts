@@ -29,7 +29,7 @@ import {
   RenderEvent,
 } from 'app/types/events';
 import { getTimeSrv } from '../services/TimeSrv';
-import { getAllVariableValuesForUrl } from '../../variables/getAllVariableValuesForUrl';
+import { getVariablesUrlParams } from '../../variables/getAllVariableValuesForUrl';
 import {
   filterFieldConfigOverrides,
   getPanelOptionsWithDefaults,
@@ -38,6 +38,7 @@ import {
 } from './getPanelOptionsWithDefaults';
 import { QueryGroupOptions } from 'app/types';
 import { PanelModelLibraryPanel } from '../../library-panels/types';
+import { isDeprecatedPanel } from '../utils/panel';
 
 export interface GridPos {
   x: number;
@@ -59,6 +60,7 @@ const notPersistedProperties: { [str: string]: boolean } = {
   replaceVariables: true,
   editSourceId: true,
   hasChanged: true,
+  getDisplayTitle: true,
 };
 
 // For angular panels we need to clean up properties when changing type
@@ -102,6 +104,7 @@ const mustKeepProps: { [str: string]: boolean } = {
   interval: true,
   replaceVariables: true,
   libraryPanel: true,
+  getDisplayTitle: true,
 };
 
 const defaults: any = {
@@ -337,10 +340,9 @@ export class PanelModel implements DataConfigSource {
 
   pluginLoaded(plugin: PanelPlugin) {
     this.plugin = plugin;
+    const version = getPluginVersion(plugin);
 
     if (plugin.onPanelMigration) {
-      const version = getPluginVersion(plugin);
-
       if (version !== this.pluginVersion) {
         this.options = plugin.onPanelMigration(this);
         this.pluginVersion = version;
@@ -378,8 +380,7 @@ export class PanelModel implements DataConfigSource {
     const oldOptions: any = this.getOptionsToRemember();
     const prevFieldConfig = this.fieldConfig;
     const oldPluginId = this.type;
-    const wasAngular = this.isAngularPlugin();
-
+    const wasAngular = this.isAngularPlugin() || isDeprecatedPanel(this.type);
     this.cachedPluginOptions[oldPluginId] = {
       properties: oldOptions,
       fieldConfig: prevFieldConfig,
@@ -509,6 +510,17 @@ export class PanelModel implements DataConfigSource {
   setProperty(key: keyof this, value: any) {
     this[key] = value;
     this.hasChanged = true;
+
+    // Custom handling of repeat dependent options, handled here as PanelEditor can
+    // update one key at a time right now
+    if (key === 'repeat') {
+      if (this.repeat && !this.repeatDirection) {
+        this.repeatDirection = 'h';
+      } else if (!this.repeat) {
+        delete this.repeatDirection;
+        delete this.maxPerRow;
+      }
+    }
   }
 
   replaceVariables(value: string, extraVars: ScopedVars | undefined, format?: string | Function) {
@@ -517,7 +529,8 @@ export class PanelModel implements DataConfigSource {
     if (extraVars) {
       vars = vars ? { ...vars, ...extraVars } : extraVars;
     }
-    const allVariablesParams = getAllVariableValuesForUrl(vars);
+
+    const allVariablesParams = getVariablesUrlParams(vars);
     const variablesQuery = urlUtil.toUrlParams(allVariablesParams);
     const timeRangeUrl = urlUtil.toUrlParams(getTimeSrv().timeRangeForUrl());
 
@@ -551,14 +564,18 @@ export class PanelModel implements DataConfigSource {
   getSavedId(): number {
     return this.editSourceId ?? this.id;
   }
+
+  /*
+   * This is the title used when displaying the title in the UI so it will include any interpolated variables.
+   * If you need the raw title without interpolation use title property instead.
+   * */
+  getDisplayTitle(): string {
+    return this.replaceVariables(this.title, {}, 'text');
+  }
 }
 
 function getPluginVersion(plugin: PanelPlugin): string {
   return plugin && plugin.meta.info.version ? plugin.meta.info.version : config.buildInfo.version;
-}
-
-export function isLibraryPanel(panel: PanelModel): panel is PanelModel & Required<Pick<PanelModel, 'libraryPanel'>> {
-  return panel.libraryPanel !== undefined;
 }
 
 interface PanelOptionsCache {

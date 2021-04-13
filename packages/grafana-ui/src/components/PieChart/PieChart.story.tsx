@@ -1,7 +1,16 @@
 import React from 'react';
-import { object, select, number, boolean } from '@storybook/addon-knobs';
+import { select, number, boolean } from '@storybook/addon-knobs';
 import { PieChart, PieChartType } from '@grafana/ui';
 import { withCenteredStory } from '../../utils/storybook/withCenteredStory';
+import {
+  FieldColorModeId,
+  FieldConfigSource,
+  FieldType,
+  InterpolateFunction,
+  ReduceDataOptions,
+  ThresholdsMode,
+  toDataFrame,
+} from '@grafana/data';
 
 export default {
   title: 'Visualizations/PieChart',
@@ -9,15 +18,38 @@ export default {
   component: PieChart,
 };
 
+const fieldConfig: FieldConfigSource = {
+  defaults: {
+    thresholds: {
+      mode: ThresholdsMode.Percentage,
+      steps: [{ color: 'green', value: 0 }],
+    },
+    color: {
+      mode: FieldColorModeId.PaletteClassic,
+    },
+  },
+  overrides: [],
+};
+
+const reduceOptions: ReduceDataOptions = { calcs: [] };
+const replaceVariables: InterpolateFunction = (v) => v;
+const datapoints = [
+  toDataFrame({
+    fields: [
+      { name: 'time', type: FieldType.time, values: [1618197346845, 1618197346845] },
+      { name: 'Living room', type: FieldType.number, values: [19, 21] },
+    ],
+  }),
+  toDataFrame({
+    fields: [
+      { name: 'time', type: FieldType.time, values: [1618197346845, 1618197346845] },
+      { name: 'Cellar', type: FieldType.number, values: [5, 6] },
+    ],
+  }),
+];
+
 const getKnobs = () => {
   return {
-    datapoints: object('datapoints', [
-      { numeric: 100, text: '100', title: 'USA' },
-      { numeric: 200, text: '200', title: 'Canada' },
-      { numeric: 20, text: '20', title: 'Sweden' },
-      { numeric: 50, text: '50', title: 'Spain' },
-      { numeric: 70, text: '70', title: 'Germeny' },
-    ]),
     width: number('Width', 500),
     height: number('Height', 500),
     pieType: select('pieType', [PieChartType.Pie, PieChartType.Donut], PieChartType.Pie),
@@ -28,13 +60,33 @@ const getKnobs = () => {
 };
 
 export const basic = () => {
-  const { datapoints, pieType, width, height } = getKnobs();
+  const { pieType, width, height } = getKnobs();
 
-  return <PieChart width={width} height={height} values={datapoints} pieType={pieType} />;
+  return (
+    <PieChart
+      width={width}
+      height={height}
+      replaceVariables={replaceVariables}
+      reduceOptions={reduceOptions}
+      fieldConfig={fieldConfig}
+      data={datapoints}
+      pieType={pieType}
+    />
+  );
 };
 
 export const donut = () => {
-  const { datapoints, width, height } = getKnobs();
+  const { width, height } = getKnobs();
 
-  return <PieChart width={width} height={height} values={datapoints} pieType={PieChartType.Donut} />;
+  return (
+    <PieChart
+      width={width}
+      height={height}
+      replaceVariables={replaceVariables}
+      reduceOptions={reduceOptions}
+      fieldConfig={fieldConfig}
+      data={datapoints}
+      pieType={PieChartType.Donut}
+    />
+  );
 };

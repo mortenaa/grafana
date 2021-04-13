@@ -4,11 +4,12 @@ import './func_editor';
 import _ from 'lodash';
 import GraphiteQuery from './graphite_query';
 import { QueryCtrl } from 'app/plugins/sdk';
-import appEvents from 'app/core/app_events';
 import { promiseToDigest } from 'app/core/utils/promiseToDigest';
 import { auto } from 'angular';
 import { TemplateSrv } from '@grafana/runtime';
-import { AppEvents } from '@grafana/data';
+import { dispatch } from 'app/store/store';
+import { notifyApp } from 'app/core/actions';
+import { createErrorNotification } from 'app/core/copy/appNotification';
 
 const GRAPHITE_TAG_OPERATORS = ['=', '!=', '=~', '!=~'];
 const TAG_PREFIX = 'tag: ';
@@ -22,6 +23,10 @@ export class GraphiteQueryCtrl extends QueryCtrl {
   removeTagValue: string;
   supportsTags: boolean;
   paused: boolean;
+
+  // to avoid error flooding, these errors are shown only once per session
+  private _tagsAutoCompleteErrorShown = false;
+  private _metricAutoCompleteErrorShown = false;
 
   /** @ngInject */
   constructor(
@@ -106,7 +111,7 @@ export class GraphiteQueryCtrl extends QueryCtrl {
         }
       })
       .catch((err: any) => {
-        appEvents.emit(AppEvents.alertError, ['Error', err]);
+        this.handleMetricsAutoCompleteError(err);
       });
   }
 
@@ -179,6 +184,7 @@ export class GraphiteQueryCtrl extends QueryCtrl {
         }
       })
       .catch((err: any): any[] => {
+        this.handleMetricsAutoCompleteError(err);
         return [];
       });
   }
@@ -331,24 +337,34 @@ export class GraphiteQueryCtrl extends QueryCtrl {
 
   getTags(index: number, tagPrefix: any) {
     const tagExpressions = this.queryModel.renderTagExpressions(index);
-    return this.datasource.getTagsAutoComplete(tagExpressions, tagPrefix).then((values: any) => {
-      const altTags = _.map(values, 'text');
-      altTags.splice(0, 0, this.removeTagValue);
-      return mapToDropdownOptions(altTags);
-    });
+    return this.datasource
+      .getTagsAutoComplete(tagExpressions, tagPrefix)
+      .then((values: any) => {
+        const altTags = _.map(values, 'text');
+        altTags.splice(0, 0, this.removeTagValue);
+        return mapToDropdownOptions(altTags);
+      })
+      .catch((err: any) => {
+        this.handleTagsAutoCompleteError(err);
+      });
   }
 
   getTagsAsSegments(tagPrefix: string) {
     const tagExpressions = this.queryModel.renderTagExpressions();
-    return this.datasource.getTagsAutoComplete(tagExpressions, tagPrefix).then((values: any) => {
-      return _.map(values, (val) => {
-        return this.uiSegmentSrv.newSegment({
-          value: val.text,
-          type: 'tag',
-          expandable: false,
+    return this.datasource
+      .getTagsAutoComplete(tagExpressions, tagPrefix)
+      .then((values: any) => {
+        return _.map(values, (val) => {
+          return this.uiSegmentSrv.newSegment({
+            value: val.text,
+            type: 'tag',
+            expandable: false,
+          });
         });
+      })
+      .catch((err: any) => {
+        this.handleTagsAutoCompleteError(err);
       });
-    });
   }
 
   getTagOperators() {
@@ -414,6 +430,22 @@ export class GraphiteQueryCtrl extends QueryCtrl {
 
   getCollapsedText() {
     return this.target.target;
+  }
+
+  private handleTagsAutoCompleteError(error: Error): void {
+    console.error(error);
+    if (!this._tagsAutoCompleteErrorShown) {
+      this._tagsAutoCompleteErrorShown = true;
+      dispatch(notifyApp(createErrorNotification(`Fetching tags failed: ${error.message}.`)));
+    }
+  }
+
+  private handleMetricsAutoCompleteError(error: Error): void {
+    console.error(error);
+    if (!this._metricAutoCompleteErrorShown) {
+      this._metricAutoCompleteErrorShown = true;
+      dispatch(notifyApp(createErrorNotification(`Fetching metrics failed: ${error.message}.`)));
+    }
   }
 }
 

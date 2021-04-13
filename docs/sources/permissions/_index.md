@@ -2,7 +2,7 @@
 title = "Permissions"
 description = "Permissions"
 keywords = ["grafana", "configuration", "documentation", "admin", "users", "datasources", "permissions"]
-aliases = ["/docs/grafana/latest/permissions/overview/"]
+aliases = ["/docs/grafana/next/permissions/overview/"]
 weight = 50
 +++
 
@@ -41,7 +41,7 @@ Users can belong to one or more organizations. A user's organization membership 
 
 ## Dashboard and folder permissions
 
-Dashboard and folder permissions allow you to remove the default role based permissions for Editors and Viewers and assign permissions to specific users and teams. Learn more about [Dashboard and folder permissions]({{< relref "dashboard_folder_permissions.md" >}}).
+Dashboard and folder permissions allow you to remove the default role based permissions for Editors and Viewers and assign permissions to specific users and teams. Learn more about [Dashboard and folder permissions]({{< relref "dashboard-folder-permissions.md" >}}).
 
 ## Data source permissions
 

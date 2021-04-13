@@ -13,7 +13,7 @@ import {
 } from '@grafana/data';
 import { Icon } from '../Icon/Icon';
 import { Tooltip } from '../Tooltip/Tooltip';
-import { cx, css } from 'emotion';
+import { cx, css } from '@emotion/css';
 
 import {
   LogRowContextRows,
@@ -152,7 +152,9 @@ class UnThemedLogRow extends PureComponent<Props, State> {
     });
 
     const processedRow =
-      row.hasUnescapedContent && forceEscape ? { ...row, entry: escapeUnescapedString(row.entry) } : row;
+      row.hasUnescapedContent && forceEscape
+        ? { ...row, entry: escapeUnescapedString(row.entry), raw: escapeUnescapedString(row.raw) }
+        : row;
 
     return (
       <>

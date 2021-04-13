@@ -2,7 +2,7 @@
 title = "Reporting"
 description = ""
 keywords = ["grafana", "reporting"]
-aliases = ["/docs/grafana/latest/administration/reports"]
+aliases = ["/docs/grafana/next/administration/reports"]
 weight = 400
 +++
 
@@ -154,6 +154,12 @@ By default, reports use the saved time range of the dashboard. Changing the time
 The page header of the report displays the time range for the dashboard's data queries. Dashboards set to use the browser's time zone will use the time zone on the Grafana server.
 
 If the time zone is set differently between your Grafana server and its remote image renderer, then the time ranges in the report might be different between the page header and the time axes in the panels. We advise always setting the time zone to UTC for dashboards when using a remote renderer to avoid this.
+
+## Choose template variables
+
+> ** Note:** Available in Grafana Enterprise version 7.5+ (behind `reportVariables` feature flag).
+
+You can configure report-specific template variables for the dashboard on the report page. The variables that you select will override the variables from the dashboard, and they are used when rendering a PDF file of the report. For detailed information about using template variables, refer to the [Templates and variables]({{< relref "../variables/_index.md" >}}) section. 
 
 ## Reports settings
 

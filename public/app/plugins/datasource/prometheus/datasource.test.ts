@@ -1599,7 +1599,6 @@ describe('PrometheusDatasource', () => {
 });
 
 describe('PrometheusDatasource for POST', () => {
-  //   const ctx = new helpers.ServiceTestContext();
   const instanceSettings = ({
     url: 'proxied',
     directUrl: 'direct',
@@ -1746,6 +1745,32 @@ describe('prepareTargets', () => {
         step: 1,
       });
       expect(activeTargets[0]).toEqual(target);
+    });
+    it('should give back 2 targets when exemplar enabled', () => {
+      const target: PromQuery = {
+        refId: 'A',
+        expr: 'up',
+        exemplar: true,
+      };
+
+      const { queries, activeTargets } = getPrepareTargetsContext(target);
+      expect(queries).toHaveLength(2);
+      expect(activeTargets).toHaveLength(2);
+      expect(activeTargets[0].exemplar).toBe(true);
+      expect(activeTargets[1].exemplar).toBe(false);
+    });
+    it('should give back 1 target when exemplar and instant are enabled', () => {
+      const target: PromQuery = {
+        refId: 'A',
+        expr: 'up',
+        exemplar: true,
+        instant: true,
+      };
+
+      const { queries, activeTargets } = getPrepareTargetsContext(target);
+      expect(queries).toHaveLength(1);
+      expect(activeTargets).toHaveLength(1);
+      expect(activeTargets[0].instant).toBe(true);
     });
   });
 
