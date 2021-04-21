@@ -96,9 +96,8 @@ func generateConnectionString(dataSource *models.DataSource) (string, error) {
 	tlsSkipVerify := dataSource.JsonData.Get("tlsSkipVerify").MustBool(false)
 	hostNameInCertificate := dataSource.JsonData.Get("hostNameInCertificate").MustString("")
 	certificate := dataSource.JsonData.Get("certificate").MustString("")
-	connStr := fmt.Sprintf("server=%s;port=%s;database=%s;user id=%s;password=%s;",
+	connStr := fmt.Sprintf("server=%s;database=%s;user id=%s;password=%s;",
 		addr.Host,
-		addr.Port,
 		dataSource.Database,
 		dataSource.User,
 		dataSource.DecryptedPassword(),
