@@ -1,7 +1,7 @@
 import {
+  PasswordFieldEnum,
   createChangeHandler,
   createResetHandler,
-  PasswordFieldEnum,
 } from '../../../features/datasources/utils/passwordHandlers';
 
 export class MssqlConfigCtrl {
@@ -21,11 +21,12 @@ export class MssqlConfigCtrl {
     this.current.jsonData.encrypt = this.current.jsonData.encrypt || 'false';
     this.current.jsonData.certificate = this.current.jsonData.certificate || '';
     this.current.jsonData.tlsSkipVerify = this.current.jsonData.tlsSkipVerify || false;
+    this.current.jsonData.hostNameInCertificate = this.current.jsonData.hostNameInCertificate || '';
     this.current.jsonData.authenticationType = this.current.jsonData.authenticationType || 'SQL Server Authentication';
     this.onPasswordReset = createResetHandler(this, PasswordFieldEnum.Password);
     this.onPasswordChange = createChangeHandler(this, PasswordFieldEnum.Password);
-    this.showUserCredentials = this.current.jsonData.authenticationType !== 'Windows Authentication';
-    this.showTlsConfig = this.current.jsonData.encrypt === 'true';
+    this.onAuthenticationTypeChange();
+    this.onEncryptChange();
   }
 
   onAuthenticationTypeChange() {
