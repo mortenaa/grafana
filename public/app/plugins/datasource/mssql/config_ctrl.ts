@@ -17,6 +17,7 @@ export class MssqlConfigCtrl {
 
   /** @ngInject */
   constructor($scope: any) {
+    this.current = $scope.ctrl.current;
     this.current.jsonData.encrypt = this.current.jsonData.encrypt || 'false';
     this.current.jsonData.certificate = this.current.jsonData.certificate || '';
     this.current.jsonData.tlsSkipVerify = this.current.jsonData.tlsSkipVerify || false;
