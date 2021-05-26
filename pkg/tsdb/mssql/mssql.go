@@ -86,6 +86,7 @@ func generateConnectionString(dataSource *models.DataSource) (string, error) {
 			Port: dfltPort,
 		}
 	}
+
 	args := []interface{}{
 		"url", dataSource.Url, "host", addr.Host,
 	}

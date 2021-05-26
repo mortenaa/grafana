@@ -1,7 +1,7 @@
 import {
-  PasswordFieldEnum,
   createChangeHandler,
   createResetHandler,
+  PasswordFieldEnum,
 } from '../../../features/datasources/utils/passwordHandlers';
 
 export class MssqlConfigCtrl {
