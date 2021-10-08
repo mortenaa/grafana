@@ -43,6 +43,9 @@ export const getTableStyles = (theme: GrafanaTheme2) => {
           display: inline-flex;
         }
       }
+      a {
+        color: inherit;
+      }
     `;
   };
 
@@ -62,6 +65,14 @@ export const getTableStyles = (theme: GrafanaTheme2) => {
     `,
     thead: css`
       label: thead;
+      height: ${cellHeight}px;
+      overflow-y: auto;
+      overflow-x: hidden;
+      background: ${headerBg};
+      position: relative;
+    `,
+    tfoot: css`
+      label: tfoot;
       height: ${cellHeight}px;
       overflow-y: auto;
       overflow-x: hidden;
@@ -103,6 +114,12 @@ export const getTableStyles = (theme: GrafanaTheme2) => {
       white-space: nowrap;
       text-decoration: underline;
     `,
+    imageCellLink: css`
+      cursor: pointer;
+      overflow: hidden;
+      width: 100%;
+      height: 100%;
+    `,
     headerFilter: css`
       label: headerFilter;
       cursor: pointer;
@@ -131,7 +148,6 @@ export const getTableStyles = (theme: GrafanaTheme2) => {
       right: -4px;
       border-radius: 3px;
       top: 0;
-      z-index: ${theme.zIndex.dropdown};
       touch-action: none;
 
       &:hover {

@@ -9,21 +9,25 @@ import (
 
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	old_notifiers "github.com/grafana/grafana/pkg/services/alerting/notifiers"
+	"github.com/grafana/grafana/pkg/setting"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/alertmanager/types"
 )
 
+// GetDecryptedValueFn is a function that returns the decrypted value of
+// the given key. If the key is not present, then it returns the fallback value.
+type GetDecryptedValueFn func(ctx context.Context, sjd map[string][]byte, key string, fallback string, secret string) string
+
 // NewAlertmanagerNotifier returns a new Alertmanager notifier.
-func NewAlertmanagerNotifier(model *NotificationChannelConfig, t *template.Template) (*AlertmanagerNotifier, error) {
+func NewAlertmanagerNotifier(model *NotificationChannelConfig, _ *template.Template, fn GetDecryptedValueFn) (*AlertmanagerNotifier, error) {
 	if model.Settings == nil {
-		return nil, alerting.ValidationError{Reason: "No settings supplied"}
+		return nil, receiverInitError{Reason: "no settings supplied"}
 	}
 
 	urlStr := model.Settings.Get("url").MustString()
 	if urlStr == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find url property in settings"}
+		return nil, receiverInitError{Reason: "could not find url property in settings", Cfg: *model}
 	}
 
 	var urls []*url.URL
@@ -36,13 +40,13 @@ func NewAlertmanagerNotifier(model *NotificationChannelConfig, t *template.Templ
 		uS = strings.TrimSuffix(uS, "/") + "/api/v1/alerts"
 		u, err := url.Parse(uS)
 		if err != nil {
-			return nil, alerting.ValidationError{Reason: "Invalid url property in settings"}
+			return nil, receiverInitError{Reason: "invalid url property in settings", Cfg: *model, Err: err}
 		}
 
 		urls = append(urls, u)
 	}
 	basicAuthUser := model.Settings.Get("basicAuthUser").MustString()
-	basicAuthPassword := model.DecryptedValue("basicAuthPassword", model.Settings.Get("basicAuthPassword").MustString())
+	basicAuthPassword := fn(context.Background(), model.SecureSettings, "basicAuthPassword", model.Settings.Get("basicAuthPassword").MustString(), setting.SecretKey)
 
 	return &AlertmanagerNotifier{
 		NotifierBase: old_notifiers.NewNotifierBase(&models.AlertNotification{

@@ -15,17 +15,16 @@ import {
   DataSourceInstanceSettings,
   MetricFindValue,
 } from '@grafana/data';
-import { getBackendSrv, getTemplateSrv, DataSourceWithBackend, FetchResponse } from '@grafana/runtime';
+import { getTemplateSrv, DataSourceWithBackend } from '@grafana/runtime';
 import { Observable, from } from 'rxjs';
 import { mergeMap } from 'rxjs/operators';
-import { getAuthType, getAzureCloud } from '../credentials';
-import { getLogAnalyticsApiRoute, getLogAnalyticsManagementApiRoute } from '../api/routes';
-import { AzureLogAnalyticsMetadata } from '../types/logAnalyticsMetadata';
+import { getAuthType, getAzureCloud, getAzurePortalUrl } from '../credentials';
 import { isGUIDish } from '../components/ResourcePicker/utils';
+import { interpolateVariable, routeNames } from '../utils/common';
 
 interface AdhocQuery {
   datasourceId: number;
-  url: string;
+  path: string;
   resultFormat: string;
 }
 
@@ -33,64 +32,71 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
   AzureMonitorQuery,
   AzureDataSourceJsonData
 > {
-  url: string;
-  baseUrl: string;
-  applicationId: string;
+  resourcePath: string;
+  azurePortalUrl: string;
+  declare applicationId: string;
 
-  subscriptionId: string;
+  defaultSubscriptionId?: string;
 
-  azureMonitorUrl: string;
-  defaultOrFirstWorkspace: string;
+  azureMonitorPath: string;
+  firstWorkspace?: string;
   cache: Map<string, any>;
 
   constructor(private instanceSettings: DataSourceInstanceSettings<AzureDataSourceJsonData>) {
     super(instanceSettings);
     this.cache = new Map();
 
+    this.resourcePath = `${routeNames.logAnalytics}`;
+    this.azureMonitorPath = `${routeNames.azureMonitor}/subscriptions`;
     const cloud = getAzureCloud(instanceSettings);
-    const logAnalyticsRoute = getLogAnalyticsApiRoute(cloud);
-    this.baseUrl = `/${logAnalyticsRoute}`;
+    this.azurePortalUrl = getAzurePortalUrl(cloud);
 
-    const managementRoute = getLogAnalyticsManagementApiRoute(cloud);
-    this.azureMonitorUrl = `/${managementRoute}/subscriptions`;
-
-    this.url = instanceSettings.url || '';
-    this.subscriptionId = this.instanceSettings.jsonData.logAnalyticsSubscriptionId || '';
-    this.defaultOrFirstWorkspace = this.instanceSettings.jsonData.logAnalyticsDefaultWorkspace || '';
+    this.defaultSubscriptionId = this.instanceSettings.jsonData.subscriptionId || '';
   }
 
   isConfigured(): boolean {
-    return !!this.subscriptionId && this.subscriptionId.length > 0;
+    // If validation didn't return any error then the data source is properly configured
+    return !this.validateDatasource();
+  }
+
+  async getSubscriptions(): Promise<Array<{ text: string; value: string }>> {
+    if (!this.isConfigured()) {
+      return [];
+    }
+
+    const path = `${this.azureMonitorPath}?api-version=2019-03-01`;
+    return await this.getResource(path).then((result: any) => {
+      return ResponseParser.parseSubscriptions(result);
+    });
   }
 
   async getWorkspaces(subscription: string): Promise<AzureLogsVariable[]> {
     const response = await this.getWorkspaceList(subscription);
 
     return (
-      map(response.data.value, (val: any) => {
-        return { text: val.name, value: val.id };
+      map(response.value, (val: any) => {
+        return {
+          text: val.name,
+          value: val.id,
+        };
       }) || []
     );
   }
 
-  getWorkspaceList(subscription: string): Promise<any> {
-    const subscriptionId = getTemplateSrv().replace(subscription || this.subscriptionId);
+  private getWorkspaceList(subscription: string): Promise<any> {
+    const subscriptionId = getTemplateSrv().replace(subscription || this.defaultSubscriptionId);
 
     const workspaceListUrl =
-      this.azureMonitorUrl +
+      this.azureMonitorPath +
       `/${subscriptionId}/providers/Microsoft.OperationalInsights/workspaces?api-version=2017-04-26-preview`;
-    return this.doRequest(workspaceListUrl, true);
+    return this.getResource(workspaceListUrl);
   }
 
   async getMetadata(resourceUri: string) {
-    const url = `${this.baseUrl}/v1${resourceUri}/metadata`;
+    const path = `${this.resourcePath}/v1${resourceUri}/metadata`;
 
-    const resp = await this.doRequest<AzureLogAnalyticsMetadata>(url);
-    if (!resp.ok) {
-      throw new Error('Unable to get metadata for workspace');
-    }
-
-    return resp.data;
+    const resp = await this.getResource(path);
+    return resp;
   }
 
   async getKustoSchema(resourceUri: string) {
@@ -98,32 +104,33 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
     return transformMetadataToKustoSchema(metadata, resourceUri);
   }
 
-  applyTemplateVariables(target: AzureMonitorQuery, scopedVars: ScopedVars): Record<string, any> {
+  applyTemplateVariables(target: AzureMonitorQuery, scopedVars: ScopedVars): AzureMonitorQuery {
     const item = target.azureLogAnalytics;
+    if (!item) {
+      return target;
+    }
 
     const templateSrv = getTemplateSrv();
     const resource = templateSrv.replace(item.resource, scopedVars);
     let workspace = templateSrv.replace(item.workspace, scopedVars);
 
-    if (!workspace && !resource && this.defaultOrFirstWorkspace) {
-      workspace = this.defaultOrFirstWorkspace;
+    if (!workspace && !resource && this.firstWorkspace) {
+      workspace = this.firstWorkspace;
     }
 
-    const subscriptionId = templateSrv.replace(target.subscription || this.subscriptionId, scopedVars);
-    const query = templateSrv.replace(item.query, scopedVars, this.interpolateVariable);
+    const query = templateSrv.replace(item.query, scopedVars, interpolateVariable);
 
     return {
       refId: target.refId,
-      format: target.format,
       queryType: AzureQueryType.LogAnalytics,
-      subscriptionId: subscriptionId,
+
       azureLogAnalytics: {
         resultFormat: item.resultFormat,
-        query: query,
+        query,
         resource,
 
-        // TODO: Workspace is deprecated and should be migrated to Resources
-        workspace: workspace,
+        // Workspace was removed in Grafana 8, but remains for backwards compat
+        workspace,
       },
     };
   }
@@ -173,7 +180,7 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
     }
 
     const url =
-      `https://portal.azure.com/#blade/Microsoft_OperationsManagementSuite_Workspace/` +
+      `${this.azurePortalUrl}/#blade/Microsoft_OperationsManagementSuite_Workspace/` +
       `AnalyticsBlade/initiator/AnalyticsShareLinkToQuery/isQueryEditorVisible/true/scope/` +
       `%7B%22resources%22%3A%5B%7B%22resourceId%22%3A%22%2Fsubscriptions%2F${subscription}` +
       `%2Fresourcegroups%2F${details.resourceGroup}%2Fproviders%2Fmicrosoft.operationalinsights%2Fworkspaces%2F${details.workspace}` +
@@ -182,12 +189,12 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
   }
 
   async getWorkspaceDetails(workspaceId: string) {
-    if (!this.subscriptionId) {
+    if (!this.defaultSubscriptionId) {
       return {};
     }
-    const response = await this.getWorkspaceList(this.subscriptionId);
+    const response = await this.getWorkspaceList(this.defaultSubscriptionId);
 
-    const details = response.data.value.find((o: any) => {
+    const details = response.value.find((o: any) => {
       return o.properties.customerId === workspaceId;
     });
 
@@ -213,11 +220,17 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
    * And some of the azure internal data sources return null in this function, which the
    * external interface does not support
    */
-  metricFindQueryInternal(query: string): Promise<MetricFindValue[]> {
+  metricFindQueryInternal(query: string, optionalOptions?: unknown): Promise<MetricFindValue[]> {
     // workspaces() - Get workspaces in the default subscription
     const workspacesQuery = query.match(/^workspaces\(\)/i);
     if (workspacesQuery) {
-      return this.getWorkspaces(this.subscriptionId);
+      if (this.defaultSubscriptionId) {
+        return this.getWorkspaces(this.defaultSubscriptionId);
+      } else {
+        throw new Error(
+          'No subscription ID. Specify a default subscription ID in the data source config to use workspaces() without a subscription ID'
+        );
+      }
     }
 
     // workspaces("abc-def-etc") - Get workspaces a specified subscription
@@ -227,8 +240,12 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
     }
 
     // Execute the query as KQL to the default or first workspace
-    return this.getDefaultOrFirstWorkspace().then((resourceURI) => {
-      const queries = this.buildQuery(query, null, resourceURI);
+    return this.getFirstWorkspace().then((resourceURI) => {
+      if (!resourceURI) {
+        return [];
+      }
+
+      const queries = this.buildQuery(query, optionalOptions, resourceURI);
       const promises = this.doQueries(queries);
 
       return Promise.all(promises)
@@ -255,20 +272,20 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
 
   private buildQuery(query: string, options: any, workspace: string): AdhocQuery[] {
     const querystringBuilder = new LogAnalyticsQuerystringBuilder(
-      getTemplateSrv().replace(query, {}, this.interpolateVariable),
+      getTemplateSrv().replace(query, {}, interpolateVariable),
       options,
       'TimeGenerated'
     );
 
     const querystring = querystringBuilder.generate().uriString;
-    const url = isGUIDish(workspace)
-      ? `${this.baseUrl}/v1/workspaces/${workspace}/query?${querystring}`
-      : `${this.baseUrl}/v1/${workspace}/query?${querystring}`;
+    const path = isGUIDish(workspace)
+      ? `${this.resourcePath}/v1/workspaces/${workspace}/query?${querystring}`
+      : `${this.resourcePath}/v1${workspace}/query?${querystring}`;
 
     const queries = [
       {
         datasourceId: this.id,
-        url: url,
+        path: path,
         resultFormat: 'table',
       },
     ];
@@ -276,39 +293,32 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
     return queries;
   }
 
-  interpolateVariable(value: string, variable: { multi: any; includeAll: any }) {
-    if (typeof value === 'string') {
-      if (variable.multi || variable.includeAll) {
-        return "'" + value + "'";
-      } else {
-        return value;
-      }
+  async getDefaultOrFirstSubscription(): Promise<string | undefined> {
+    if (this.defaultSubscriptionId) {
+      return this.defaultSubscriptionId;
     }
-
-    if (typeof value === 'number') {
-      return value;
-    }
-
-    const quotedValues = map(value, (val) => {
-      if (typeof value === 'number') {
-        return value;
-      }
-
-      return "'" + val + "'";
-    });
-    return quotedValues.join(',');
+    const subscriptions = await this.getSubscriptions();
+    return subscriptions[0]?.value;
   }
 
-  getDefaultOrFirstWorkspace() {
-    if (this.defaultOrFirstWorkspace) {
-      return Promise.resolve(this.defaultOrFirstWorkspace);
+  async getFirstWorkspace(): Promise<string | undefined> {
+    if (this.firstWorkspace) {
+      return this.firstWorkspace;
     }
 
-    return this.getWorkspaces(this.subscriptionId).then((workspaces) => {
-      this.defaultOrFirstWorkspace = workspaces[0].value;
+    const subscriptionId = await this.getDefaultOrFirstSubscription();
+    if (!subscriptionId) {
+      return undefined;
+    }
 
-      return this.defaultOrFirstWorkspace;
-    });
+    const workspaces = await this.getWorkspaces(subscriptionId);
+    const workspace = workspaces[0]?.value;
+
+    if (workspace) {
+      this.firstWorkspace = workspace;
+    }
+
+    return workspace;
   }
 
   annotationQuery(options: any) {
@@ -329,7 +339,7 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
 
   doQueries(queries: AdhocQuery[]) {
     return map(queries, (query) => {
-      return this.doRequest(query.url)
+      return this.getResource(query.path)
         .then((result: any) => {
           return {
             result: result,
@@ -345,73 +355,49 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
     });
   }
 
-  async doRequest<T = any>(url: string, useCache = false, maxRetries = 1): Promise<FetchResponse<T>> {
-    try {
-      if (useCache && this.cache.has(url)) {
-        return this.cache.get(url);
-      }
-
-      const res = await getBackendSrv().datasourceRequest({
-        url: this.url + url,
-        method: 'GET',
-      });
-
-      if (useCache) {
-        this.cache.set(url, res);
-      }
-
-      return res;
-    } catch (error) {
-      if (maxRetries > 0) {
-        return this.doRequest(url, useCache, maxRetries - 1);
-      }
-
-      throw error;
-    }
-  }
-
-  // TODO: update to be completely resource-centric
-  testDatasource(): Promise<DatasourceValidationResult> {
+  async testDatasource(): Promise<DatasourceValidationResult> {
     const validationError = this.validateDatasource();
     if (validationError) {
-      return Promise.resolve(validationError);
+      return validationError;
     }
 
-    return this.getDefaultOrFirstWorkspace()
-      .then((resourceOrWorkspace) => {
-        const url = isGUIDish(resourceOrWorkspace)
-          ? `${this.baseUrl}/v1/workspaces/${resourceOrWorkspace}/metadata`
-          : `${this.baseUrl}/v1${resourceOrWorkspace}/metadata`;
-
-        return this.doRequest(url);
-      })
-      .then<DatasourceValidationResult>((response: any) => {
-        if (response.status === 200) {
-          return {
-            status: 'success',
-            message: 'Successfully queried the Azure Log Analytics service.',
-            title: 'Success',
-          };
-        }
-
+    let resourceOrWorkspace: string;
+    try {
+      const result = await this.getFirstWorkspace();
+      if (!result) {
         return {
           status: 'error',
-          message: 'Returned http status code ' + response.status,
+          message: 'Workspace not found.',
         };
-      })
-      .catch((error: any) => {
-        let message = 'Azure Log Analytics: ';
-        if (error.config && error.config.url && error.config.url.indexOf('workspacesloganalytics') > -1) {
-          message = 'Azure Log Analytics requires access to Azure Monitor but had the following error: ';
-        }
+      }
+      resourceOrWorkspace = result;
+    } catch (e) {
+      let message = 'Azure Log Analytics requires access to Azure Monitor but had the following error: ';
+      return {
+        status: 'error',
+        message: this.getErrorMessage(message, e),
+      };
+    }
 
-        message = this.getErrorMessage(message, error);
+    try {
+      const path = isGUIDish(resourceOrWorkspace)
+        ? `${this.resourcePath}/v1/workspaces/${resourceOrWorkspace}/metadata`
+        : `${this.resourcePath}/v1${resourceOrWorkspace}/metadata`;
 
+      return await this.getResource(path).then<DatasourceValidationResult>((response: any) => {
         return {
-          status: 'error',
-          message: message,
+          status: 'success',
+          message: 'Successfully queried the Azure Log Analytics service.',
+          title: 'Success',
         };
       });
+    } catch (e) {
+      let message = 'Azure Log Analytics: ';
+      return {
+        status: 'error',
+        message: this.getErrorMessage(message, e),
+      };
+    }
   }
 
   private getErrorMessage(message: string, error: any) {
@@ -432,26 +418,19 @@ export default class AzureLogAnalyticsDatasource extends DataSourceWithBackend<
     const authType = getAuthType(this.instanceSettings);
 
     if (authType === 'clientsecret') {
-      if (!this.isValidConfigField(this.instanceSettings.jsonData.logAnalyticsTenantId)) {
+      if (!this.isValidConfigField(this.instanceSettings.jsonData.tenantId)) {
         return {
           status: 'error',
           message: 'The Tenant Id field is required.',
         };
       }
 
-      if (!this.isValidConfigField(this.instanceSettings.jsonData.logAnalyticsClientId)) {
+      if (!this.isValidConfigField(this.instanceSettings.jsonData.clientId)) {
         return {
           status: 'error',
           message: 'The Client Id field is required.',
         };
       }
-    }
-
-    if (!this.isValidConfigField(this.subscriptionId)) {
-      return {
-        status: 'error',
-        message: 'The Subscription Id field is required.',
-      };
     }
 
     return undefined;

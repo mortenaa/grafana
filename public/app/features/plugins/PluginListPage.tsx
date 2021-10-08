@@ -1,5 +1,4 @@
 import React from 'react';
-import { hot } from 'react-hot-loader';
 import { connect, ConnectedProps } from 'react-redux';
 import Page from 'app/core/components/Page/Page';
 import PageActionBar from 'app/core/components/PageActionBar/PageActionBar';
@@ -12,7 +11,6 @@ import { setPluginsSearchQuery } from './state/reducers';
 import { useAsync } from 'react-use';
 import { selectors } from '@grafana/e2e-selectors';
 import { PluginsErrorsInfo } from './PluginsErrorsInfo';
-import { config } from '@grafana/runtime';
 
 const mapStateToProps = (state: StoreState) => ({
   navModel: getNavModel(state.navIndex, 'plugins'),
@@ -47,12 +45,6 @@ export const PluginListPage: React.FC<Props> = ({
     title: 'Find more plugins on Grafana.com',
   };
 
-  if (config.pluginAdminEnabled) {
-    linkButton.href = '/a/grafana-plugin-admin-app/';
-    linkButton.title = 'Install & manage plugins';
-    actionTarget = undefined;
-  }
-
   return (
     <Page navModel={navModel} aria-label={selectors.pages.PluginsList.page}>
       <Page.Contents isLoading={!hasFetched}>
@@ -64,16 +56,7 @@ export const PluginListPage: React.FC<Props> = ({
             placeholder="Search by name, author, description or type"
             target={actionTarget}
           />
-
-          <PluginsErrorsInfo>
-            <>
-              <br />
-              <p>
-                Note that <strong>unsigned front-end datasource and panel plugins</strong> are still usable, but this is
-                subject to change in the upcoming releases of Grafana
-              </p>
-            </>
-          </PluginsErrorsInfo>
+          <PluginsErrorsInfo />
           {hasFetched && plugins && <PluginList plugins={plugins} />}
         </>
       </Page.Contents>
@@ -81,4 +64,4 @@ export const PluginListPage: React.FC<Props> = ({
   );
 };
 
-export default hot(module)(connect(mapStateToProps, mapDispatchToProps)(PluginListPage));
+export default connect(mapStateToProps, mapDispatchToProps)(PluginListPage);

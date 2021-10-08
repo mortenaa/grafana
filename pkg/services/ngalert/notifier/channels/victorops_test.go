@@ -13,7 +13,6 @@ import (
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 )
 
 func TestVictoropsNotifier(t *testing.T) {
@@ -28,7 +27,7 @@ func TestVictoropsNotifier(t *testing.T) {
 		settings     string
 		alerts       []*types.Alert
 		expMsg       string
-		expInitError error
+		expInitError string
 		expMsgError  error
 	}{
 		{
@@ -38,7 +37,7 @@ func TestVictoropsNotifier(t *testing.T) {
 				{
 					Alert: model.Alert{
 						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
-						Annotations: model.LabelSet{"ann1": "annv1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
 					},
 				},
 			},
@@ -48,10 +47,9 @@ func TestVictoropsNotifier(t *testing.T) {
 			  "entity_id": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
 			  "message_type": "CRITICAL",
 			  "monitoring_tool": "Grafana v",
-			  "state_message": "\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n"
+			  "state_message": "**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n"
 			}`,
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		}, {
 			name:     "Multiple alerts",
 			settings: `{"url": "http://localhost"}`,
@@ -74,14 +72,13 @@ func TestVictoropsNotifier(t *testing.T) {
 			  "entity_id": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
 			  "message_type": "CRITICAL",
 			  "monitoring_tool": "Grafana v",
-			  "state_message": "\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv2\nSource: \n\n\n\n\n"
+			  "state_message": "**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\n\nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv2\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval2\n"
 			}`,
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		}, {
 			name:         "Error in initing, no URL",
 			settings:     `{}`,
-			expInitError: alerting.ValidationError{Reason: "Could not find victorops url property in settings"},
+			expInitError: `failed to validate receiver "victorops_testing" of type "victorops": could not find victorops url property in settings`,
 		},
 	}
 
@@ -97,9 +94,9 @@ func TestVictoropsNotifier(t *testing.T) {
 			}
 
 			pn, err := NewVictoropsNotifier(m, tmpl)
-			if c.expInitError != nil {
+			if c.expInitError != "" {
 				require.Error(t, err)
-				require.Equal(t, c.expInitError.Error(), err.Error())
+				require.Equal(t, c.expInitError, err.Error())
 				return
 			}
 			require.NoError(t, err)

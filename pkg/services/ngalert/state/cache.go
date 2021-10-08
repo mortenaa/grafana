@@ -2,6 +2,7 @@ package state
 
 import (
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -15,17 +16,19 @@ import (
 )
 
 type cache struct {
-	states    map[int64]map[string]map[string]*State // orgID > alertRuleUID > stateID > state
-	mtxStates sync.RWMutex
-	log       log.Logger
-	metrics   *metrics.Metrics
+	states      map[int64]map[string]map[string]*State // orgID > alertRuleUID > stateID > state
+	mtxStates   sync.RWMutex
+	log         log.Logger
+	metrics     *metrics.State
+	externalURL *url.URL
 }
 
-func newCache(logger log.Logger, metrics *metrics.Metrics) *cache {
+func newCache(logger log.Logger, metrics *metrics.State, externalURL *url.URL) *cache {
 	return &cache{
-		states:  make(map[int64]map[string]map[string]*State),
-		log:     logger,
-		metrics: metrics,
+		states:      make(map[int64]map[string]map[string]*State),
+		log:         logger,
+		metrics:     metrics,
+		externalURL: externalURL,
 	}
 }
 
@@ -33,16 +36,19 @@ func (c *cache) getOrCreate(alertRule *ngModels.AlertRule, result eval.Result) *
 	c.mtxStates.Lock()
 	defer c.mtxStates.Unlock()
 
+	// clone the labels so we don't change eval.Result
+	labels := result.Instance.Copy()
+	attachRuleLabels(labels, alertRule)
+	ruleLabels, annotations := c.expandRuleLabelsAndAnnotations(alertRule, labels, result)
+
 	// if duplicate labels exist, alertRule label will take precedence
-	lbs := mergeLabels(alertRule.Labels, result.Instance)
-	lbs[ngModels.UIDLabel] = alertRule.UID
-	lbs[ngModels.NamespaceUIDLabel] = alertRule.NamespaceUID
-	lbs[prometheusModel.AlertNameLabel] = alertRule.Title
+	lbs := mergeLabels(ruleLabels, result.Instance)
+	attachRuleLabels(lbs, alertRule)
 
 	il := ngModels.InstanceLabels(lbs)
 	id, err := il.StringKey()
 	if err != nil {
-		c.log.Error("error getting cacheId for entry", "msg", err.Error())
+		c.log.Error("error getting cacheId for entry", "err", err.Error())
 	}
 
 	if _, ok := c.states[alertRule.OrgID]; !ok {
@@ -53,12 +59,10 @@ func (c *cache) getOrCreate(alertRule *ngModels.AlertRule, result eval.Result) *
 	}
 
 	if state, ok := c.states[alertRule.OrgID][alertRule.UID][id]; ok {
+		// Annotations can change over time for the same alert.
+		state.Annotations = annotations
+		c.states[alertRule.OrgID][alertRule.UID][id] = state
 		return state
-	}
-
-	annotations := map[string]string{}
-	if len(alertRule.Annotations) > 0 {
-		annotations = alertRule.Annotations
 	}
 
 	// If the first result we get is alerting, set StartsAt to EvaluatedAt because we
@@ -68,7 +72,6 @@ func (c *cache) getOrCreate(alertRule *ngModels.AlertRule, result eval.Result) *
 		OrgID:              alertRule.OrgID,
 		CacheId:            id,
 		Labels:             lbs,
-		State:              result.State,
 		Annotations:        annotations,
 		EvaluationDuration: result.EvaluationDuration,
 	}
@@ -77,6 +80,30 @@ func (c *cache) getOrCreate(alertRule *ngModels.AlertRule, result eval.Result) *
 	}
 	c.states[alertRule.OrgID][alertRule.UID][id] = newState
 	return newState
+}
+
+func attachRuleLabels(m map[string]string, alertRule *ngModels.AlertRule) {
+	m[ngModels.RuleUIDLabel] = alertRule.UID
+	m[ngModels.NamespaceUIDLabel] = alertRule.NamespaceUID
+	m[prometheusModel.AlertNameLabel] = alertRule.Title
+}
+
+func (c *cache) expandRuleLabelsAndAnnotations(alertRule *ngModels.AlertRule, labels map[string]string, alertInstance eval.Result) (map[string]string, map[string]string) {
+	expand := func(original map[string]string) map[string]string {
+		expanded := make(map[string]string, len(original))
+		for k, v := range original {
+			ev, err := expandTemplate(alertRule.Title, v, labels, alertInstance, c.externalURL)
+			expanded[k] = ev
+			if err != nil {
+				c.log.Error("error in expanding template", "name", k, "value", v, "err", err.Error())
+				// Store the original template on error.
+				expanded[k] = v
+			}
+		}
+
+		return expanded
+	}
+	return expand(alertRule.Labels), expand(alertRule.Annotations)
 }
 
 func (c *cache) set(entry *State) {
@@ -176,4 +203,10 @@ func mergeLabels(a, b data.Labels) data.Labels {
 		}
 	}
 	return newLbs
+}
+
+func (c *cache) deleteEntry(orgID int64, alertRuleUID, cacheID string) {
+	c.mtxStates.Lock()
+	defer c.mtxStates.Unlock()
+	delete(c.states[orgID][alertRuleUID], cacheID)
 }

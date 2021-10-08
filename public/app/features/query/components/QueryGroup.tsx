@@ -6,6 +6,7 @@ import {
   CustomScrollbar,
   HorizontalGroup,
   Icon,
+  InlineFormLabel,
   Modal,
   ScrollbarPosition,
   stylesFactory,
@@ -38,6 +39,7 @@ import { QueryGroupOptionsEditor } from './QueryGroupOptions';
 import { DashboardQueryEditor, isSharedDashboardQuery } from 'app/plugins/datasource/dashboard';
 import { css } from '@emotion/css';
 import { QueryGroupOptions } from 'app/types';
+import { GroupActionComponents } from './QueryActionComponent';
 
 interface Props {
   queryRunner: PanelQueryRunner;
@@ -201,6 +203,7 @@ export class QueryGroup extends PureComponent<Props, State> {
     return (
       <div>
         <div className={styles.dataSourceRow}>
+          <InlineFormLabel width={'auto'}>Data source</InlineFormLabel>
           <div className={styles.dataSourceRowItem}>
             <DataSourcePicker
               onChange={this.onChangeDataSource}
@@ -325,6 +328,12 @@ export class QueryGroup extends PureComponent<Props, State> {
     return (dsSettings.meta.alerting || dsSettings.meta.mixed) === true;
   }
 
+  renderExtraActions() {
+    return GroupActionComponents.getAllExtraRenderAction().map((c) => {
+      return React.createElement(c, { onAddQuery: this.onAddQuery });
+    });
+  }
+
   renderAddQueryRow(dsSettings: DataSourceInstanceSettings, styles: QueriesTabStyles) {
     const { isAddingMixed } = this.state;
     const showAddButton = !(isAddingMixed || isSharedDashboardQuery(dsSettings.name));
@@ -342,7 +351,7 @@ export class QueryGroup extends PureComponent<Props, State> {
           </Button>
         )}
         {config.expressionsEnabled && this.isExpressionsSupported(dsSettings) && (
-          <Tooltip content="Experimental feature: queries could stop working in next version" placement="right">
+          <Tooltip content="Beta feature: queries could stop working in next version" placement="right">
             <Button
               icon="plus"
               onClick={this.onAddExpressionClick}
@@ -354,6 +363,7 @@ export class QueryGroup extends PureComponent<Props, State> {
             </Button>
           </Tooltip>
         )}
+        {this.renderExtraActions()}
       </HorizontalGroup>
     );
   }

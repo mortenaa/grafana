@@ -78,7 +78,7 @@ export function addToRichHistory(
       store.setObject(RICH_HISTORY_KEY, updatedHistory);
       return updatedHistory;
     } catch (error) {
-      dispatch(notifyApp(createErrorNotification(error)));
+      dispatch(notifyApp(createErrorNotification('Saving rich history failed', error.message)));
       return richHistory;
     }
   }
@@ -111,7 +111,7 @@ export function updateStarredInRichHistory(richHistory: RichHistoryQuery[], ts: 
     store.setObject(RICH_HISTORY_KEY, updatedHistory);
     return updatedHistory;
   } catch (error) {
-    dispatch(notifyApp(createErrorNotification(error)));
+    dispatch(notifyApp(createErrorNotification('Saving rich history failed', error.message)));
     return richHistory;
   }
 }
@@ -133,7 +133,7 @@ export function updateCommentInRichHistory(
     store.setObject(RICH_HISTORY_KEY, updatedHistory);
     return updatedHistory;
   } catch (error) {
-    dispatch(notifyApp(createErrorNotification(error)));
+    dispatch(notifyApp(createErrorNotification('Saving rich history failed', error.message)));
     return richHistory;
   }
 }
@@ -144,7 +144,7 @@ export function deleteQueryInRichHistory(richHistory: RichHistoryQuery[], ts: nu
     store.setObject(RICH_HISTORY_KEY, updatedHistory);
     return updatedHistory;
   } catch (error) {
-    dispatch(notifyApp(createErrorNotification(error)));
+    dispatch(notifyApp(createErrorNotification('Saving rich history failed', error.message)));
     return richHistory;
   }
 }
@@ -331,7 +331,7 @@ export function filterQueriesBySearchFilter(queries: RichHistoryQuery[], searchF
   });
 }
 
-export function filterQueriesByDataSource(queries: RichHistoryQuery[], listOfDatasourceFilters: string[] | null) {
+export function filterQueriesByDataSource(queries: RichHistoryQuery[], listOfDatasourceFilters: string[]) {
   return listOfDatasourceFilters && listOfDatasourceFilters.length > 0
     ? queries.filter((q) => listOfDatasourceFilters.includes(q.datasourceName))
     : queries;
@@ -348,7 +348,7 @@ export function filterQueriesByTime(queries: RichHistoryQuery[], timeFilter: [nu
 export function filterAndSortQueries(
   queries: RichHistoryQuery[],
   sortOrder: SortOrder,
-  listOfDatasourceFilters: string[] | null,
+  listOfDatasourceFilters: string[],
   searchFilter: string,
   timeFilter?: [number, number]
 ) {

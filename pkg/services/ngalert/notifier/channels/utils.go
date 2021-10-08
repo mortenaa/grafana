@@ -16,7 +16,6 @@ import (
 	"github.com/grafana/grafana/pkg/util"
 	"github.com/prometheus/common/model"
 
-	"github.com/grafana/grafana/pkg/components/securejsondata"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 )
 
@@ -26,6 +25,28 @@ const (
 	ColorAlertResolved = "#36a64f"
 )
 
+type receiverInitError struct {
+	Reason string
+	Err    error
+	Cfg    NotificationChannelConfig
+}
+
+func (e receiverInitError) Error() string {
+	name := ""
+	if e.Cfg.Name != "" {
+		name = fmt.Sprintf("%q ", e.Cfg.Name)
+	}
+
+	s := fmt.Sprintf("failed to validate receiver %sof type %q: %s", name, e.Cfg.Type, e.Reason)
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %s", s, e.Err.Error())
+	}
+
+	return s
+}
+
+func (e receiverInitError) Unwrap() error { return e.Err }
+
 func getAlertStatusColor(status model.AlertStatus) string {
 	if status == model.AlertFiring {
 		return ColorAlertFiring
@@ -34,20 +55,12 @@ func getAlertStatusColor(status model.AlertStatus) string {
 }
 
 type NotificationChannelConfig struct {
-	UID                   string                        `json:"uid"`
-	Name                  string                        `json:"name"`
-	Type                  string                        `json:"type"`
-	DisableResolveMessage bool                          `json:"disableResolveMessage"`
-	Settings              *simplejson.Json              `json:"settings"`
-	SecureSettings        securejsondata.SecureJsonData `json:"secureSettings"`
-}
-
-// DecryptedValue returns decrypted value from secureSettings
-func (an *NotificationChannelConfig) DecryptedValue(field string, fallback string) string {
-	if value, ok := an.SecureSettings.DecryptedValue(field); ok {
-		return value
-	}
-	return fallback
+	UID                   string            `json:"uid"`
+	Name                  string            `json:"name"`
+	Type                  string            `json:"type"`
+	DisableResolveMessage bool              `json:"disableResolveMessage"`
+	Settings              *simplejson.Json  `json:"settings"`
+	SecureSettings        map[string][]byte `json:"secureSettings"`
 }
 
 type httpCfg struct {
@@ -112,13 +125,20 @@ var sendHTTPRequest = func(ctx context.Context, url *url.URL, cfg httpCfg, logge
 	return respBody, nil
 }
 
-func joinUrlPath(base, additionalPath string) (string, error) {
+func joinUrlPath(base, additionalPath string, logger log.Logger) string {
 	u, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse URL: %w", err)
+		logger.Debug("failed to parse URL while joining URL", "url", base, "err", err.Error())
+		return base
 	}
 
 	u.Path = path.Join(u.Path, additionalPath)
 
-	return u.String(), nil
+	return u.String()
+}
+
+// GetBoundary is used for overriding the behaviour for tests
+// and set a boundary for multipart body. DO NOT set this outside tests.
+var GetBoundary = func() string {
+	return ""
 }

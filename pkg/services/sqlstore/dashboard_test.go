@@ -1,9 +1,12 @@
+//go:build integration
 // +build integration
 
 package sqlstore
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -29,6 +32,7 @@ func TestDashboardDataAccess(t *testing.T) {
 			savedDash := insertTestDashboard(t, sqlStore, "test dash 23", 1, savedFolder.Id, false, "prod", "webapp")
 			insertTestDashboard(t, sqlStore, "test dash 45", 1, savedFolder.Id, false, "prod")
 			savedDash2 := insertTestDashboard(t, sqlStore, "test dash 67", 1, 0, false, "prod")
+			insertTestRule(t, sqlStore, savedFolder.OrgId, savedFolder.Uid)
 
 			Convey("Should return dashboard model", func() {
 				So(savedDash.Title, ShouldEqual, "test dash 23")
@@ -52,7 +56,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					OrgId: 1,
 				}
 
-				err := GetDashboard(&query)
+				err := GetDashboard(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(query.Result.Title, ShouldEqual, "test dash 23")
@@ -68,7 +72,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					OrgId: 1,
 				}
 
-				err := GetDashboard(&query)
+				err := GetDashboard(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(query.Result.Title, ShouldEqual, "test dash 23")
@@ -84,7 +88,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					OrgId: 1,
 				}
 
-				err := GetDashboard(&query)
+				err := GetDashboard(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(query.Result.Title, ShouldEqual, "test dash 23")
@@ -99,14 +103,14 @@ func TestDashboardDataAccess(t *testing.T) {
 					OrgId: 1,
 				}
 
-				err := GetDashboard(&query)
+				err := GetDashboard(context.Background(), &query)
 				So(err, ShouldEqual, models.ErrDashboardIdentifierNotSet)
 			})
 
 			Convey("Should be able to delete dashboard", func() {
 				dash := insertTestDashboard(t, sqlStore, "delete me", 1, 0, false, "delete this")
 
-				err := DeleteDashboard(&models.DeleteDashboardCommand{
+				err := DeleteDashboard(context.Background(), &models.DeleteDashboardCommand{
 					Id:    dash.Id,
 					OrgId: 1,
 				})
@@ -187,7 +191,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					OrgId: 1,
 				}
 
-				err = GetDashboard(&query)
+				err = GetDashboard(context.Background(), &query)
 				So(err, ShouldBeNil)
 				So(query.Result.FolderId, ShouldEqual, 0)
 				So(query.Result.CreatedBy, ShouldEqual, savedDash.CreatedBy)
@@ -200,13 +204,19 @@ func TestDashboardDataAccess(t *testing.T) {
 				emptyFolder := insertTestDashboard(t, sqlStore, "2 test dash folder", 1, 0, true, "prod", "webapp")
 
 				deleteCmd := &models.DeleteDashboardCommand{Id: emptyFolder.Id}
-				err := DeleteDashboard(deleteCmd)
+				err := DeleteDashboard(context.Background(), deleteCmd)
 				So(err, ShouldBeNil)
 			})
 
-			Convey("Should be able to delete a dashboard folder and its children", func() {
-				deleteCmd := &models.DeleteDashboardCommand{Id: savedFolder.Id}
-				err := DeleteDashboard(deleteCmd)
+			Convey("Should be not able to delete a dashboard if force delete rules is disabled", func() {
+				deleteCmd := &models.DeleteDashboardCommand{Id: savedFolder.Id, ForceDeleteFolderRules: false}
+				err := DeleteDashboard(context.Background(), deleteCmd)
+				So(errors.Is(err, models.ErrFolderContainsAlertRules), ShouldBeTrue)
+			})
+
+			Convey("Should be able to delete a dashboard folder and its children if force delete rules is enabled", func() {
+				deleteCmd := &models.DeleteDashboardCommand{Id: savedFolder.Id, ForceDeleteFolderRules: true}
+				err := DeleteDashboard(context.Background(), deleteCmd)
 				So(err, ShouldBeNil)
 
 				query := search.FindPersistedDashboardsQuery{
@@ -215,10 +225,24 @@ func TestDashboardDataAccess(t *testing.T) {
 					SignedInUser: &models.SignedInUser{},
 				}
 
-				err = SearchDashboards(&query)
+				err = SearchDashboards(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 0)
+
+				sqlStore.WithDbSession(context.Background(), func(sess *DBSession) error {
+					var existingRuleID int64
+					exists, err := sess.Table("alert_rule").Where("namespace_uid = (SELECT uid FROM dashboard WHERE id = ?)", savedFolder.Id).Cols("id").Get(&existingRuleID)
+					require.NoError(t, err)
+					So(exists, ShouldBeFalse)
+
+					var existingRuleVersionID int64
+					exists, err = sess.Table("alert_rule_version").Where("rule_namespace_uid = (SELECT uid FROM dashboard WHERE id = ?)", savedFolder.Id).Cols("id").Get(&existingRuleVersionID)
+					require.NoError(t, err)
+					So(exists, ShouldBeFalse)
+
+					return nil
+				})
 			})
 
 			Convey("Should return error if no dashboard is found for update when dashboard id is greater than zero", func() {
@@ -253,7 +277,7 @@ func TestDashboardDataAccess(t *testing.T) {
 			Convey("Should be able to get dashboard tags", func() {
 				query := models.GetDashboardTagsQuery{OrgId: 1}
 
-				err := GetDashboardTags(&query)
+				err := GetDashboardTags(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 2)
@@ -266,7 +290,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					SignedInUser: &models.SignedInUser{OrgId: 1, OrgRole: models.ROLE_EDITOR},
 				}
 
-				err := SearchDashboards(&query)
+				err := SearchDashboards(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 1)
@@ -283,7 +307,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					SignedInUser: &models.SignedInUser{OrgId: 1, OrgRole: models.ROLE_EDITOR},
 				}
 
-				err := SearchDashboards(&query)
+				err := SearchDashboards(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 1)
@@ -298,7 +322,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					SignedInUser: &models.SignedInUser{OrgId: 1, OrgRole: models.ROLE_EDITOR},
 				}
 
-				err := SearchDashboards(&query)
+				err := SearchDashboards(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 1)
@@ -313,7 +337,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					SignedInUser: &models.SignedInUser{OrgId: 1, OrgRole: models.ROLE_EDITOR},
 				}
 
-				err := SearchDashboards(&query)
+				err := SearchDashboards(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 3)
@@ -327,7 +351,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					SignedInUser: &models.SignedInUser{OrgId: 1, OrgRole: models.ROLE_EDITOR},
 				}
 
-				err := SearchDashboards(&query)
+				err := SearchDashboards(context.Background(), &query)
 				So(err, ShouldBeNil)
 
 				So(len(query.Result), ShouldEqual, 2)
@@ -347,7 +371,7 @@ func TestDashboardDataAccess(t *testing.T) {
 						SignedInUser: &models.SignedInUser{OrgId: 1, OrgRole: models.ROLE_EDITOR},
 					}
 
-					err := SearchDashboards(&query)
+					err := SearchDashboards(context.Background(), &query)
 					So(err, ShouldBeNil)
 
 					So(len(query.Result), ShouldEqual, 2)
@@ -362,13 +386,13 @@ func TestDashboardDataAccess(t *testing.T) {
 
 			Convey("Given two dashboards, one is starred dashboard by user 10, other starred by user 1", func() {
 				starredDash := insertTestDashboard(t, sqlStore, "starred dash", 1, 0, false)
-				err := StarDashboard(&models.StarDashboardCommand{
+				err := sqlStore.StarDashboard(context.Background(), &models.StarDashboardCommand{
 					DashboardId: starredDash.Id,
 					UserId:      10,
 				})
 				So(err, ShouldBeNil)
 
-				err = StarDashboard(&models.StarDashboardCommand{
+				err = sqlStore.StarDashboard(context.Background(), &models.StarDashboardCommand{
 					DashboardId: savedDash.Id,
 					UserId:      1,
 				})
@@ -379,7 +403,7 @@ func TestDashboardDataAccess(t *testing.T) {
 						SignedInUser: &models.SignedInUser{UserId: 10, OrgId: 1, OrgRole: models.ROLE_EDITOR},
 						IsStarred:    true,
 					}
-					err := SearchDashboards(&query)
+					err := SearchDashboards(context.Background(), &query)
 
 					So(err, ShouldBeNil)
 					So(len(query.Result), ShouldEqual, 1)
@@ -401,7 +425,7 @@ func TestDashboardDataAccess(t *testing.T) {
 					OrgId:    1,
 				}
 
-				err := GetDashboardsByPluginId(&query)
+				err := GetDashboardsByPluginId(context.Background(), &query)
 				So(err, ShouldBeNil)
 				So(len(query.Result), ShouldEqual, 2)
 			})
@@ -460,6 +484,84 @@ func insertTestDashboard(t *testing.T, sqlStore *SQLStore, title string, orgId i
 	return dash
 }
 
+func insertTestRule(t *testing.T, sqlStore *SQLStore, foderOrgID int64, folderUID string) {
+	sqlStore.WithDbSession(context.Background(), func(sess *DBSession) error {
+
+		type alertQuery struct {
+			RefID         string
+			DatasourceUID string
+			Model         json.RawMessage
+		}
+
+		type alertRule struct {
+			ID           int64 `xorm:"pk autoincr 'id'"`
+			OrgID        int64 `xorm:"org_id"`
+			Title        string
+			Updated      time.Time
+			UID          string `xorm:"uid"`
+			NamespaceUID string `xorm:"namespace_uid"`
+			RuleGroup    string
+			Condition    string
+			Data         []alertQuery
+		}
+
+		rule := alertRule{
+			OrgID:        foderOrgID,
+			NamespaceUID: folderUID,
+			UID:          "rule",
+			RuleGroup:    "rulegroup",
+			Updated:      time.Now(),
+			Condition:    "A",
+			Data: []alertQuery{
+				{
+					RefID:         "A",
+					DatasourceUID: "-100",
+					Model: json.RawMessage(`{
+						"type": "math",
+						"expression": "2 + 3 > 1"
+						}`),
+				},
+			},
+		}
+		_, err := sess.Insert(&rule)
+		require.NoError(t, err)
+
+		type alertRuleVersion struct {
+			ID               int64  `xorm:"pk autoincr 'id'"`
+			RuleOrgID        int64  `xorm:"rule_org_id"`
+			RuleUID          string `xorm:"rule_uid"`
+			RuleNamespaceUID string `xorm:"rule_namespace_uid"`
+			RuleGroup        string
+			ParentVersion    int64
+			RestoredFrom     int64
+			Version          int64
+			Created          time.Time
+			Title            string
+			Condition        string
+			Data             []alertQuery
+			IntervalSeconds  int64
+		}
+
+		ruleVersion := alertRuleVersion{
+			RuleOrgID:        rule.OrgID,
+			RuleUID:          rule.UID,
+			RuleNamespaceUID: rule.NamespaceUID,
+			RuleGroup:        rule.RuleGroup,
+			Created:          rule.Updated,
+			Condition:        rule.Condition,
+			Data:             rule.Data,
+			ParentVersion:    0,
+			RestoredFrom:     0,
+			Version:          1,
+			IntervalSeconds:  60,
+		}
+		_, err = sess.Insert(&ruleVersion)
+		require.NoError(t, err)
+
+		return err
+	})
+}
+
 func insertTestDashboardForPlugin(t *testing.T, sqlStore *SQLStore, title string, orgId int64,
 	folderId int64, isFolder bool, pluginId string) *models.Dashboard {
 	t.Helper()
@@ -493,7 +595,7 @@ func createUser(t *testing.T, sqlStore *SQLStore, name string, role string, isAd
 	require.NoError(t, err)
 
 	q1 := models.GetUserOrgListQuery{UserId: currentUser.Id}
-	err = GetUserOrgList(&q1)
+	err = GetUserOrgList(context.Background(), &q1)
 	require.NoError(t, err)
 	require.Equal(t, models.RoleType(role), q1.Result[0].Role)
 

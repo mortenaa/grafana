@@ -8,15 +8,14 @@ e2e.scenario({
   skipScenario: false,
   scenario: () => {
     e2e.flows.openDashboard({ uid: 'yBCC3aKGk' });
-    e2e().server();
     e2e()
-      .route({
+      .intercept({
         method: 'GET',
         url: '/api/search?tag=templating&limit=100',
       })
       .as('tagsTemplatingSearch');
     e2e()
-      .route({
+      .intercept({
         method: 'GET',
         url: '/api/search?tag=demo&limit=100',
       })
@@ -51,8 +50,11 @@ e2e.scenario({
     e2e.pages.Dashboard.SubMenu.submenuItemValueDropDownOptionTexts('p2').should('be.visible').click();
 
     e2e.components.PageToolbar.container().click();
-
-    e2e.components.DashboardLinks.dropDown().should('be.visible').click().wait('@tagsTemplatingSearch');
+    e2e.components.DashboardLinks.dropDown()
+      .scrollIntoView()
+      .should('be.visible')
+      .click()
+      .wait('@tagsTemplatingSearch');
 
     // verify all links, should have p2 value
     verifyLinks('p2');

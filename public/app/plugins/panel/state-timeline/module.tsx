@@ -1,10 +1,12 @@
 import { FieldColorModeId, FieldConfigProperty, PanelPlugin } from '@grafana/data';
 import { StateTimelinePanel } from './StateTimelinePanel';
 import { TimelineOptions, TimelineFieldConfig, defaultPanelOptions, defaultTimelineFieldConfig } from './types';
-import { BarValueVisibility } from '@grafana/ui';
-import { addLegendOptions } from '@grafana/ui/src/options/builder';
+import { VisibilityMode } from '@grafana/schema';
+import { commonOptionsBuilder } from '@grafana/ui';
+import { timelinePanelChangedHandler } from './migrations';
 
 export const plugin = new PanelPlugin<TimelineOptions, TimelineFieldConfig>(StateTimelinePanel)
+  .setPanelChangeHandler(timelinePanelChangedHandler)
   .useFieldConfig({
     standardOptions: {
       [FieldConfigProperty.Color]: {
@@ -52,9 +54,9 @@ export const plugin = new PanelPlugin<TimelineOptions, TimelineFieldConfig>(Stat
         name: 'Show values',
         settings: {
           options: [
-            { value: BarValueVisibility.Auto, label: 'Auto' },
-            { value: BarValueVisibility.Always, label: 'Always' },
-            { value: BarValueVisibility.Never, label: 'Never' },
+            { value: VisibilityMode.Auto, label: 'Auto' },
+            { value: VisibilityMode.Always, label: 'Always' },
+            { value: VisibilityMode.Never, label: 'Never' },
           ],
         },
         defaultValue: defaultPanelOptions.showValue,
@@ -82,5 +84,6 @@ export const plugin = new PanelPlugin<TimelineOptions, TimelineFieldConfig>(Stat
         defaultValue: defaultPanelOptions.rowHeight,
       });
 
-    addLegendOptions(builder, false);
+    commonOptionsBuilder.addLegendOptions(builder, false);
+    commonOptionsBuilder.addTooltipOptions(builder, true);
   });

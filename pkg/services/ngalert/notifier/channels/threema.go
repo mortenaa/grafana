@@ -7,17 +7,14 @@ import (
 	"path"
 	"strings"
 
-	gokit_log "github.com/go-kit/kit/log"
-	"github.com/prometheus/alertmanager/notify"
-	"github.com/prometheus/alertmanager/template"
-	"github.com/prometheus/alertmanager/types"
-	"github.com/prometheus/common/model"
-
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	old_notifiers "github.com/grafana/grafana/pkg/services/alerting/notifiers"
+	"github.com/grafana/grafana/pkg/setting"
+	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/alertmanager/types"
+	"github.com/prometheus/common/model"
 )
 
 var (
@@ -36,33 +33,33 @@ type ThreemaNotifier struct {
 }
 
 // NewThreemaNotifier is the constructor for the Threema notifier
-func NewThreemaNotifier(model *NotificationChannelConfig, t *template.Template) (*ThreemaNotifier, error) {
+func NewThreemaNotifier(model *NotificationChannelConfig, t *template.Template, fn GetDecryptedValueFn) (*ThreemaNotifier, error) {
 	if model.Settings == nil {
-		return nil, alerting.ValidationError{Reason: "No Settings Supplied"}
+		return nil, receiverInitError{Cfg: *model, Reason: "no settings supplied"}
 	}
 
 	gatewayID := model.Settings.Get("gateway_id").MustString()
 	recipientID := model.Settings.Get("recipient_id").MustString()
-	apiSecret := model.DecryptedValue("api_secret", model.Settings.Get("api_secret").MustString())
+	apiSecret := fn(context.Background(), model.SecureSettings, "api_secret", model.Settings.Get("api_secret").MustString(), setting.SecretKey)
 
 	// Validation
 	if gatewayID == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find Threema Gateway ID in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find Threema Gateway ID in settings"}
 	}
 	if !strings.HasPrefix(gatewayID, "*") {
-		return nil, alerting.ValidationError{Reason: "Invalid Threema Gateway ID: Must start with a *"}
+		return nil, receiverInitError{Cfg: *model, Reason: "invalid Threema Gateway ID: Must start with a *"}
 	}
 	if len(gatewayID) != 8 {
-		return nil, alerting.ValidationError{Reason: "Invalid Threema Gateway ID: Must be 8 characters long"}
+		return nil, receiverInitError{Cfg: *model, Reason: "invalid Threema Gateway ID: Must be 8 characters long"}
 	}
 	if recipientID == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find Threema Recipient ID in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find Threema Recipient ID in settings"}
 	}
 	if len(recipientID) != 8 {
-		return nil, alerting.ValidationError{Reason: "Invalid Threema Recipient ID: Must be 8 characters long"}
+		return nil, receiverInitError{Cfg: *model, Reason: "invalid Threema Recipient ID: Must be 8 characters long"}
 	}
 	if apiSecret == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find Threema API secret in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find Threema API secret in settings"}
 	}
 
 	return &ThreemaNotifier{
@@ -85,9 +82,8 @@ func NewThreemaNotifier(model *NotificationChannelConfig, t *template.Template) 
 func (tn *ThreemaNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool, error) {
 	tn.log.Debug("Sending threema alert notification", "from", tn.GatewayID, "to", tn.RecipientID)
 
-	tmplData := notify.GetTemplateData(ctx, tn.tmpl, as, gokit_log.NewNopLogger())
 	var tmplErr error
-	tmpl := notify.TmplText(tn.tmpl, tmplData, &tmplErr)
+	tmpl, _ := TmplText(ctx, tn.tmpl, as, tn.log, &tmplErr)
 
 	// Set up basic API request data
 	data := url.Values{}
@@ -112,7 +108,7 @@ func (tn *ThreemaNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool
 	data.Set("text", message)
 
 	if tmplErr != nil {
-		return false, fmt.Errorf("failed to template Theema message: %w", tmplErr)
+		tn.log.Debug("failed to template Threema message", "err", tmplErr.Error())
 	}
 
 	cmd := &models.SendWebhookSync{

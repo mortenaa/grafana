@@ -13,7 +13,6 @@ import (
 	"github.com/grafana/grafana-aws-sdk/pkg/awsds"
 	"github.com/grafana/grafana-plugin-sdk-go/backend"
 	"github.com/grafana/grafana/pkg/infra/log"
-	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/plugins/backendplugin"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/stretchr/testify/require"
@@ -310,7 +309,7 @@ func TestManager(t *testing.T) {
 type managerScenarioCtx struct {
 	cfg     *setting.Cfg
 	license *testLicensingService
-	manager *manager
+	manager *Manager
 	factory backendplugin.PluginFactoryFunc
 	plugin  *testPlugin
 	env     []string
@@ -331,7 +330,7 @@ func newManagerScenario(t *testing.T, managed bool, fn func(t *testing.T, ctx *m
 	ctx := &managerScenarioCtx{
 		cfg:     cfg,
 		license: license,
-		manager: &manager{
+		manager: &Manager{
 			Cfg:                    cfg,
 			License:                license,
 			PluginRequestValidator: validator,
@@ -339,9 +338,6 @@ func newManagerScenario(t *testing.T, managed bool, fn func(t *testing.T, ctx *m
 			plugins:                map[string]backendplugin.Plugin{},
 		},
 	}
-
-	err := ctx.manager.Init()
-	require.NoError(t, err)
 
 	ctx.factory = func(pluginID string, logger log.Logger, env []string) (backendplugin.Plugin, error) {
 		ctx.plugin = &testPlugin{
@@ -367,6 +363,7 @@ type testPlugin struct {
 	decommissioned bool
 	backend.CollectMetricsHandlerFunc
 	backend.CheckHealthHandlerFunc
+	backend.QueryDataHandlerFunc
 	backend.CallResourceHandlerFunc
 	mutex sync.RWMutex
 }
@@ -441,6 +438,14 @@ func (tp *testPlugin) CheckHealth(ctx context.Context, req *backend.CheckHealthR
 	return nil, backendplugin.ErrMethodNotImplemented
 }
 
+func (tp *testPlugin) QueryData(ctx context.Context, req *backend.QueryDataRequest) (*backend.QueryDataResponse, error) {
+	if tp.QueryDataHandlerFunc != nil {
+		return tp.QueryDataHandlerFunc(ctx, req)
+	}
+
+	return nil, backendplugin.ErrMethodNotImplemented
+}
+
 func (tp *testPlugin) CallResource(ctx context.Context, req *backend.CallResourceRequest, sender backend.CallResourceResponseSender) error {
 	if tp.CallResourceHandlerFunc != nil {
 		return tp.CallResourceHandlerFunc(ctx, req, sender)
@@ -487,7 +492,7 @@ func (t *testLicensingService) ContentDeliveryPrefix() string {
 	return ""
 }
 
-func (t *testLicensingService) LicenseURL(user *models.SignedInUser) string {
+func (t *testLicensingService) LicenseURL(showAdminLicensingPage bool) string {
 	return ""
 }
 

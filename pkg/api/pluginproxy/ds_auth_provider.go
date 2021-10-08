@@ -9,18 +9,25 @@ import (
 
 	"github.com/grafana/grafana/pkg/models"
 	"github.com/grafana/grafana/pkg/plugins"
+	"github.com/grafana/grafana/pkg/services/encryption"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/grafana/grafana/pkg/util"
 )
 
 // ApplyRoute should use the plugin route data to set auth headers and custom headers.
 func ApplyRoute(ctx context.Context, req *http.Request, proxyPath string, route *plugins.AppPluginRoute,
-	ds *models.DataSource, cfg *setting.Cfg) {
+	ds *models.DataSource, cfg *setting.Cfg, encryptionService encryption.Service) {
 	proxyPath = strings.TrimPrefix(proxyPath, route.Path)
+
+	secureJsonData, err := encryptionService.DecryptJsonData(ctx, ds.SecureJsonData, setting.SecretKey)
+	if err != nil {
+		logger.Error("Error interpolating proxy url", "error", err)
+		return
+	}
 
 	data := templateData{
 		JsonData:       ds.JsonData.Interface().(map[string]interface{}),
-		SecureJsonData: ds.SecureJsonData.Decrypt(),
+		SecureJsonData: secureJsonData,
 	}
 
 	if len(route.URL) > 0 {
@@ -57,14 +64,16 @@ func ApplyRoute(ctx context.Context, req *http.Request, proxyPath string, route 
 	if tokenProvider, err := getTokenProvider(ctx, cfg, ds, route, data); err != nil {
 		logger.Error("Failed to resolve auth token provider", "error", err)
 	} else if tokenProvider != nil {
-		if token, err := tokenProvider.getAccessToken(); err != nil {
+		if token, err := tokenProvider.GetAccessToken(); err != nil {
 			logger.Error("Failed to get access token", "error", err)
 		} else {
 			req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
 		}
 	}
 
-	logger.Info("Requesting", "url", req.URL.String())
+	if cfg.DataProxyLogging {
+		logger.Debug("Requesting", "url", req.URL.String())
+	}
 }
 
 func getTokenProvider(ctx context.Context, cfg *setting.Cfg, ds *models.DataSource, pluginRoute *plugins.AppPluginRoute,
@@ -90,8 +99,7 @@ func getTokenProvider(ctx context.Context, cfg *setting.Cfg, ds *models.DataSour
 		if tokenAuth == nil {
 			return nil, fmt.Errorf("'tokenAuth' not configured for authentication type '%s'", authType)
 		}
-		provider := newAzureAccessTokenProvider(ctx, cfg, ds, pluginRoute, tokenAuth)
-		return provider, nil
+		return newAzureAccessTokenProvider(ctx, cfg, tokenAuth)
 
 	case "gce":
 		if jwtTokenAuth == nil {

@@ -553,6 +553,23 @@ describe('PrometheusDatasource', () => {
     });
   });
 
+  describe('interpolateVariablesInQueries', () => {
+    it('should call replace function 2 times', () => {
+      const query = {
+        expr: 'test{job="testjob"}',
+        format: 'time_series',
+        interval: '$Interval',
+        refId: 'A',
+      };
+      const interval = '10m';
+      templateSrvStub.replace.mockReturnValue(interval);
+
+      const queries = ds.interpolateVariablesInQueries([query], { Interval: { text: interval, value: interval } });
+      expect(templateSrvStub.replace).toBeCalledTimes(2);
+      expect(queries[0].interval).toBe(interval);
+    });
+  });
+
   describe('metricFindQuery', () => {
     beforeEach(() => {
       const query = 'query_result(topk(5,rate(http_request_duration_microseconds_count[$__interval])))';
@@ -1759,7 +1776,17 @@ describe('PrometheusDatasource for POST', () => {
   });
 });
 
-const getPrepareTargetsContext = (target: PromQuery, app?: CoreApp, queryOptions?: Partial<QueryOptions>) => {
+function getPrepareTargetsContext({
+  targets,
+  app,
+  queryOptions,
+  languageProvider,
+}: {
+  targets: PromQuery[];
+  app?: CoreApp;
+  queryOptions?: Partial<QueryOptions>;
+  languageProvider?: any;
+}) {
   const instanceSettings = ({
     url: 'proxied',
     directUrl: 'direct',
@@ -1771,7 +1798,7 @@ const getPrepareTargetsContext = (target: PromQuery, app?: CoreApp, queryOptions
   const end = 1;
   const panelId = '2';
   const options = ({
-    targets: [target],
+    targets,
     interval: '1s',
     panelId,
     app,
@@ -1779,6 +1806,9 @@ const getPrepareTargetsContext = (target: PromQuery, app?: CoreApp, queryOptions
   } as any) as DataQueryRequest<PromQuery>;
 
   const ds = new PrometheusDatasource(instanceSettings, templateSrvStub as any, timeSrvStub as any);
+  if (languageProvider) {
+    ds.languageProvider = languageProvider;
+  }
   const { queries, activeTargets } = ds.prepareTargets(options, start, end);
 
   return {
@@ -1788,7 +1818,7 @@ const getPrepareTargetsContext = (target: PromQuery, app?: CoreApp, queryOptions
     end,
     panelId,
   };
-};
+}
 
 describe('prepareTargets', () => {
   describe('when run from a Panel', () => {
@@ -1799,7 +1829,7 @@ describe('prepareTargets', () => {
         requestId: '2A',
       };
 
-      const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext(target);
+      const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext({ targets: [target] });
 
       expect(queries.length).toBe(1);
       expect(activeTargets.length).toBe(1);
@@ -1819,6 +1849,51 @@ describe('prepareTargets', () => {
       });
       expect(activeTargets[0]).toEqual(target);
     });
+
+    it('should give back 3 targets when multiple queries with exemplar enabled and same metric', () => {
+      const targetA: PromQuery = {
+        refId: 'A',
+        expr: 'histogram_quantile(0.95, sum(rate(tns_request_duration_seconds_bucket[5m])) by (le))',
+        exemplar: true,
+      };
+      const targetB: PromQuery = {
+        refId: 'B',
+        expr: 'histogram_quantile(0.5, sum(rate(tns_request_duration_seconds_bucket[5m])) by (le))',
+        exemplar: true,
+      };
+
+      const { queries, activeTargets } = getPrepareTargetsContext({
+        targets: [targetA, targetB],
+        languageProvider: {
+          histogramMetrics: ['tns_request_duration_seconds_bucket'],
+        },
+      });
+      expect(queries).toHaveLength(3);
+      expect(activeTargets).toHaveLength(3);
+    });
+
+    it('should give back 4 targets when multiple queries with exemplar enabled', () => {
+      const targetA: PromQuery = {
+        refId: 'A',
+        expr: 'histogram_quantile(0.95, sum(rate(tns_request_duration_seconds_bucket[5m])) by (le))',
+        exemplar: true,
+      };
+      const targetB: PromQuery = {
+        refId: 'B',
+        expr: 'histogram_quantile(0.5, sum(rate(tns_request_duration_bucket[5m])) by (le))',
+        exemplar: true,
+      };
+
+      const { queries, activeTargets } = getPrepareTargetsContext({
+        targets: [targetA, targetB],
+        languageProvider: {
+          histogramMetrics: ['tns_request_duration_seconds_bucket'],
+        },
+      });
+      expect(queries).toHaveLength(4);
+      expect(activeTargets).toHaveLength(4);
+    });
+
     it('should give back 2 targets when exemplar enabled', () => {
       const target: PromQuery = {
         refId: 'A',
@@ -1826,7 +1901,7 @@ describe('prepareTargets', () => {
         exemplar: true,
       };
 
-      const { queries, activeTargets } = getPrepareTargetsContext(target);
+      const { queries, activeTargets } = getPrepareTargetsContext({ targets: [target] });
       expect(queries).toHaveLength(2);
       expect(activeTargets).toHaveLength(2);
       expect(activeTargets[0].exemplar).toBe(true);
@@ -1840,7 +1915,7 @@ describe('prepareTargets', () => {
         instant: true,
       };
 
-      const { queries, activeTargets } = getPrepareTargetsContext(target);
+      const { queries, activeTargets } = getPrepareTargetsContext({ targets: [target] });
       expect(queries).toHaveLength(1);
       expect(activeTargets).toHaveLength(1);
       expect(activeTargets[0].instant).toBe(true);
@@ -1849,6 +1924,60 @@ describe('prepareTargets', () => {
 
   describe('when run from Explore', () => {
     describe('when query type Both is selected', () => {
+      it('should give back 6 targets when multiple queries with exemplar enabled', () => {
+        const targetA: PromQuery = {
+          refId: 'A',
+          expr: 'histogram_quantile(0.95, sum(rate(tns_request_duration_seconds_bucket[5m])) by (le))',
+          instant: true,
+          range: true,
+          exemplar: true,
+        };
+        const targetB: PromQuery = {
+          refId: 'B',
+          expr: 'histogram_quantile(0.5, sum(rate(tns_request_duration_bucket[5m])) by (le))',
+          exemplar: true,
+          instant: true,
+          range: true,
+        };
+
+        const { queries, activeTargets } = getPrepareTargetsContext({
+          targets: [targetA, targetB],
+          app: CoreApp.Explore,
+          languageProvider: {
+            histogramMetrics: ['tns_request_duration_seconds_bucket'],
+          },
+        });
+        expect(queries).toHaveLength(6);
+        expect(activeTargets).toHaveLength(6);
+      });
+
+      it('should give back 5 targets when multiple queries with exemplar enabled and same metric', () => {
+        const targetA: PromQuery = {
+          refId: 'A',
+          expr: 'histogram_quantile(0.95, sum(rate(tns_request_duration_seconds_bucket[5m])) by (le))',
+          instant: true,
+          range: true,
+          exemplar: true,
+        };
+        const targetB: PromQuery = {
+          refId: 'B',
+          expr: 'histogram_quantile(0.5, sum(rate(tns_request_duration_seconds_bucket[5m])) by (le))',
+          exemplar: true,
+          instant: true,
+          range: true,
+        };
+
+        const { queries, activeTargets } = getPrepareTargetsContext({
+          targets: [targetA, targetB],
+          app: CoreApp.Explore,
+          languageProvider: {
+            histogramMetrics: ['tns_request_duration_seconds_bucket'],
+          },
+        });
+        expect(queries).toHaveLength(5);
+        expect(activeTargets).toHaveLength(5);
+      });
+
       it('then it should return both instant and time series related objects', () => {
         const target: PromQuery = {
           refId: 'A',
@@ -1858,7 +1987,10 @@ describe('prepareTargets', () => {
           requestId: '2A',
         };
 
-        const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext(target, CoreApp.Explore);
+        const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext({
+          targets: [target],
+          app: CoreApp.Explore,
+        });
 
         expect(queries.length).toBe(2);
         expect(activeTargets.length).toBe(2);
@@ -1916,7 +2048,10 @@ describe('prepareTargets', () => {
           requestId: '2A',
         };
 
-        const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext(target, CoreApp.Explore);
+        const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext({
+          targets: [target],
+          app: CoreApp.Explore,
+        });
 
         expect(queries.length).toBe(1);
         expect(activeTargets.length).toBe(1);
@@ -1949,7 +2084,10 @@ describe('prepareTargets', () => {
         requestId: '2A',
       };
 
-      const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext(target, CoreApp.Explore);
+      const { queries, activeTargets, panelId, end, start } = getPrepareTargetsContext({
+        targets: [target],
+        app: CoreApp.Explore,
+      });
 
       expect(queries.length).toBe(1);
       expect(activeTargets.length).toBe(1);

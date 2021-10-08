@@ -20,14 +20,14 @@ const operators = ['=', '!=', '=~', '!=~'];
 
 const FilterButton = React.forwardRef<HTMLButtonElement, CustomControlProps<string>>(
   ({ value, isOpen, invalid, ...rest }, ref) => {
-    return <Button ref={ref} {...rest} variant="secondary" icon="plus"></Button>;
+    return <Button {...rest} ref={ref} variant="secondary" icon="plus"></Button>;
   }
 );
 FilterButton.displayName = 'FilterButton';
 
 const OperatorButton = React.forwardRef<HTMLButtonElement, CustomControlProps<string>>(({ value, ...rest }, ref) => {
   return (
-    <Button ref={ref} {...rest} variant="secondary">
+    <Button {...rest} ref={ref} variant="secondary">
       <span className="query-segment-operator">{value?.label}</span>
     </Button>
   );
@@ -54,6 +54,7 @@ export const LabelFilter: FunctionComponent<Props> = ({
   const AddFilter = () => {
     return (
       <Select
+        menuShouldPortal
         allowCustomValue
         options={[variableOptionGroup, ...labelsToGroupedOptions(Object.keys(labels))]}
         onChange={({ value: key = '' }) =>
@@ -77,6 +78,7 @@ export const LabelFilter: FunctionComponent<Props> = ({
         {filters.map(({ key, operator, value, condition }, index) => (
           <HorizontalGroup key={index} spacing="xs" width="auto">
             <Select
+              menuShouldPortal
               width={SELECT_WIDTH}
               allowCustomValue
               formatCreateLabel={(v) => `Use label key: ${v}`}
@@ -91,6 +93,7 @@ export const LabelFilter: FunctionComponent<Props> = ({
               }}
             />
             <Select
+              menuShouldPortal
               value={operator}
               options={operators.map(toOption)}
               onChange={({ value: operator = '=' }) =>
@@ -100,6 +103,7 @@ export const LabelFilter: FunctionComponent<Props> = ({
               renderControl={OperatorButton}
             />
             <Select
+              menuShouldPortal
               width={SELECT_WIDTH}
               formatCreateLabel={(v) => `Use label value: ${v}`}
               allowCustomValue

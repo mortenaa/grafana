@@ -6,7 +6,7 @@ import { uniqBy } from 'lodash';
 import { RichHistoryQuery, ExploreId } from 'app/types/explore';
 
 // Utils
-import { stylesFactory, useTheme, RangeSlider, Select } from '@grafana/ui';
+import { stylesFactory, useTheme, RangeSlider, MultiSelect, Select, FilterInput } from '@grafana/ui';
 import { GrafanaTheme, SelectableValue } from '@grafana/data';
 
 import {
@@ -20,14 +20,13 @@ import {
 // Components
 import RichHistoryCard from './RichHistoryCard';
 import { sortOrderOptions } from './RichHistory';
-import { FilterInput } from 'app/core/components/FilterInput/FilterInput';
 import { useDebounce } from 'react-use';
 
 export interface Props {
   queries: RichHistoryQuery[];
   sortOrder: SortOrder;
   activeDatasourceOnly: boolean;
-  datasourceFilters: SelectableValue[] | null;
+  datasourceFilters: SelectableValue[];
   retentionPeriod: number;
   exploreId: ExploreId;
   height: number;
@@ -161,7 +160,7 @@ export function RichHistoryQueriesTab(props: Props) {
       filterAndSortQueries(
         queries,
         sortOrder,
-        datasourceFilters?.map((d) => d.value) as string[] | null,
+        datasourceFilters.map((d) => d.value),
         debouncedSearchInput,
         timeFilter
       )
@@ -199,8 +198,8 @@ export function RichHistoryQueriesTab(props: Props) {
         <div className={styles.selectors}>
           {!activeDatasourceOnly && (
             <div aria-label="Filter datasources" className={styles.multiselect}>
-              <Select
-                isMulti={true}
+              <MultiSelect
+                menuShouldPortal
                 options={listOfDatasources}
                 value={datasourceFilters}
                 placeholder="Filter queries for data sources(s)"
@@ -219,6 +218,7 @@ export function RichHistoryQueriesTab(props: Props) {
           </div>
           <div aria-label="Sort queries" className={styles.sort}>
             <Select
+              menuShouldPortal
               value={sortOrderOptions.filter((order) => order.value === sortOrder)}
               options={sortOrderOptions}
               placeholder="Sort queries by"

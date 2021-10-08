@@ -1,16 +1,5 @@
-import { OptionsWithTextFormatting } from '../models.gen';
+import { OptionsWithTextFormatting } from '@grafana/schema';
 import { PanelOptionsEditorBuilder } from '@grafana/data';
-
-/**
- * Explicit control for visualization text settings
- * @public
- **/
-export interface VizTextDisplayOptions {
-  /* Explicit title text size */
-  titleSize?: number;
-  /* Explicit value text size */
-  valueSize?: number;
-}
 
 /**
  * Adds common text control options to a visualization options

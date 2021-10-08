@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/grafana/grafana/pkg/services/encryption/ossencryption"
+
 	"github.com/prometheus/alertmanager/notify"
 	"github.com/prometheus/alertmanager/types"
 	"github.com/prometheus/common/model"
@@ -14,7 +16,6 @@ import (
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 )
 
 func TestOpsgenieNotifier(t *testing.T) {
@@ -29,7 +30,7 @@ func TestOpsgenieNotifier(t *testing.T) {
 		settings     string
 		alerts       []*types.Alert
 		expMsg       string
-		expInitError error
+		expInitError string
 		expMsgError  error
 	}{
 		{
@@ -39,19 +40,19 @@ func TestOpsgenieNotifier(t *testing.T) {
 				{
 					Alert: model.Alert{
 						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
-						Annotations: model.LabelSet{"ann1": "annv1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
 					},
 				},
 			},
 			expMsg: `{
 				"alias": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
-				"description": "[FIRING:1]  (val1)\nhttp://localhost/alerting/list\n\n\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+				"description": "[FIRING:1]  (val1)\nhttp://localhost/alerting/list\n\n**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
 				"details": {
 					"url": "http://localhost/alerting/list"
 				},
 				"message": "[FIRING:1]  (val1)",
 				"source": "Grafana",
-				"tags": ["ann1:annv1"]
+				"tags": ["alertname:alert1", "lbl1:val1"]
 			}`,
 		},
 		{
@@ -70,13 +71,13 @@ func TestOpsgenieNotifier(t *testing.T) {
 			},
 			expMsg: `{
 				"alias": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
-				"description": "[FIRING:1]  (val1)\nhttp://localhost/alerting/list\n\n\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+				"description": "[FIRING:1]  (val1)\nhttp://localhost/alerting/list\n\n**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\n",
 				"details": {
 					"url": "http://localhost/alerting/list"
 				},
 				"message": "[FIRING:1]  (val1)",
 				"source": "Grafana",
-				"tags": ["ann1:annv1"]
+				"tags": ["alertname:alert1", "lbl1:val1"]
 			}`,
 		},
 		{
@@ -95,9 +96,10 @@ func TestOpsgenieNotifier(t *testing.T) {
 			},
 			expMsg: `{
 				"alias": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
-				"description": "[FIRING:1]  (val1)\nhttp://localhost/alerting/list\n\n\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+				"description": "[FIRING:1]  (val1)\nhttp://localhost/alerting/list\n\n**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\n",
 				"details": {
-					"ann1": "annv1",
+					"alertname": "alert1",
+					"lbl1": "val1",
 					"url": "http://localhost/alerting/list"
 				},
 				"message": "[FIRING:1]  (val1)",
@@ -126,17 +128,16 @@ func TestOpsgenieNotifier(t *testing.T) {
 			},
 			expMsg: `{
 				"alias": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733",
-				"description": "[FIRING:2]  \nhttp://localhost/alerting/list\n\n\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+				"description": "[FIRING:2]  \nhttp://localhost/alerting/list\n\n**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\n\nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval2\n",
 				"details": {
-					"ann1": "annv1",
+					"alertname": "alert1",
 					"url": "http://localhost/alerting/list"
 				},
 				"message": "[FIRING:2]  ",
 				"source": "Grafana",
-				"tags": ["ann1:annv1"]
+				"tags": ["alertname:alert1"]
 			}`,
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		},
 		{
 			name:     "Resolved is not sent when auto close is false",
@@ -154,7 +155,7 @@ func TestOpsgenieNotifier(t *testing.T) {
 		{
 			name:         "Error when incorrect settings",
 			settings:     `{}`,
-			expInitError: alerting.ValidationError{Reason: "Could not find api key property in settings"},
+			expInitError: `failed to validate receiver "opsgenie_testing" of type "opsgenie": could not find api key property in settings`,
 		},
 	}
 
@@ -169,10 +170,11 @@ func TestOpsgenieNotifier(t *testing.T) {
 				Settings: settingsJSON,
 			}
 
-			pn, err := NewOpsgenieNotifier(m, tmpl)
-			if c.expInitError != nil {
+			decryptFn := ossencryption.ProvideService().GetDecryptedValue
+			pn, err := NewOpsgenieNotifier(m, tmpl, decryptFn)
+			if c.expInitError != "" {
 				require.Error(t, err)
-				require.Equal(t, c.expInitError.Error(), err.Error())
+				require.Equal(t, c.expInitError, err.Error())
 				return
 			}
 			require.NoError(t, err)

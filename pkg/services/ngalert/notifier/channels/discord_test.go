@@ -3,7 +3,6 @@ package channels
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/url"
 	"testing"
 
@@ -15,7 +14,6 @@ import (
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 )
 
 func TestDiscordNotifier(t *testing.T) {
@@ -30,7 +28,7 @@ func TestDiscordNotifier(t *testing.T) {
 		settings     string
 		alerts       []*types.Alert
 		expMsg       map[string]interface{}
-		expInitError error
+		expInitError string
 		expMsgError  error
 	}{
 		{
@@ -40,12 +38,12 @@ func TestDiscordNotifier(t *testing.T) {
 				{
 					Alert: model.Alert{
 						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
-						Annotations: model.LabelSet{"ann1": "annv1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
 					},
 				},
 			},
 			expMsg: map[string]interface{}{
-				"content": "\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+				"content": "**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
 				"embeds": []interface{}{map[string]interface{}{
 					"color": 1.4037554e+07,
 					"footer": map[string]interface{}{
@@ -58,12 +56,12 @@ func TestDiscordNotifier(t *testing.T) {
 				}},
 				"username": "Grafana",
 			},
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		},
 		{
 			name: "Custom config with multiple alerts",
 			settings: `{
+				"avatar_url": "https://grafana.com/assets/img/fav32.png",
 				"url": "http://localhost",
 				"message": "{{ len .Alerts.Firing }} alerts are firing, {{ len .Alerts.Resolved }} are resolved"
 			}`,
@@ -81,7 +79,8 @@ func TestDiscordNotifier(t *testing.T) {
 				},
 			},
 			expMsg: map[string]interface{}{
-				"content": "2 alerts are firing, 0 are resolved",
+				"avatar_url": "https://grafana.com/assets/img/fav32.png",
+				"content":    "2 alerts are firing, 0 are resolved",
 				"embeds": []interface{}{map[string]interface{}{
 					"color": 1.4037554e+07,
 					"footer": map[string]interface{}{
@@ -94,21 +93,12 @@ func TestDiscordNotifier(t *testing.T) {
 				}},
 				"username": "Grafana",
 			},
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		},
 		{
 			name:         "Error in initialization",
 			settings:     `{}`,
-			expInitError: alerting.ValidationError{Reason: "Could not find webhook url property in settings"},
-		},
-		{
-			name: "Error in building messsage",
-			settings: `{
-				"url": "http://localhost",
-				"message": "{{ .Status }"
-			}`,
-			expMsgError: errors.New("failed to template discord message: template: :1: unexpected \"}\" in operand"),
+			expInitError: `failed to validate receiver "discord_testing" of type "discord": could not find webhook url property in settings`,
 		},
 	}
 
@@ -124,9 +114,8 @@ func TestDiscordNotifier(t *testing.T) {
 			}
 
 			dn, err := NewDiscordNotifier(m, tmpl)
-			if c.expInitError != nil {
-				require.Error(t, err)
-				require.Equal(t, c.expInitError.Error(), err.Error())
+			if c.expInitError != "" {
+				require.Equal(t, c.expInitError, err.Error())
 				return
 			}
 			require.NoError(t, err)

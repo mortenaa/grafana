@@ -5,18 +5,19 @@ import (
 	"fmt"
 	"time"
 
+	ngmodels "github.com/grafana/grafana/pkg/services/ngalert/models"
 	"github.com/grafana/grafana/pkg/util"
 )
 
 type alertRule struct {
-	OrgId           int64
+	OrgID           int64 `xorm:"org_id"`
 	Title           string
 	Condition       string
 	Data            []alertQuery
 	IntervalSeconds int64
 	Version         int64
-	Uid             string
-	NamespaceUid    string
+	UID             string `xorm:"uid"`
+	NamespaceUID    string `xorm:"namespace_uid"`
 	RuleGroup       string
 	NoDataState     string
 	ExecErrState    string
@@ -51,9 +52,9 @@ type alertRuleVersion struct {
 
 func (a *alertRule) makeVersion() *alertRuleVersion {
 	return &alertRuleVersion{
-		RuleOrgID:        a.OrgId,
-		RuleUID:          a.Uid,
-		RuleNamespaceUID: a.NamespaceUid,
+		RuleOrgID:        a.OrgID,
+		RuleUID:          a.UID,
+		RuleNamespaceUID: a.NamespaceUID,
 		RuleGroup:        a.RuleGroup,
 		ParentVersion:    0,
 		RestoredFrom:     0,
@@ -72,17 +73,18 @@ func (a *alertRule) makeVersion() *alertRuleVersion {
 	}
 }
 
-func addMigrationInfo(da *dashAlert) map[string]string {
-	annotations := da.ParsedSettings.AlertRuleTags
-	if annotations == nil {
-		annotations = make(map[string]string, 3)
+func addMigrationInfo(da *dashAlert) (map[string]string, map[string]string) {
+	lbls := da.ParsedSettings.AlertRuleTags
+	if lbls == nil {
+		lbls = make(map[string]string)
 	}
 
-	annotations["__dashboardUid__"] = da.DashboardUID
-	annotations["__panelId__"] = fmt.Sprintf("%v", da.PanelId)
+	annotations := make(map[string]string, 3)
+	annotations[ngmodels.DashboardUIDAnnotation] = da.DashboardUID
+	annotations[ngmodels.PanelIDAnnotation] = fmt.Sprintf("%v", da.PanelId)
 	annotations["__alertId__"] = fmt.Sprintf("%v", da.Id)
 
-	return annotations
+	return lbls, annotations
 }
 
 func getMigrationString(da dashAlert) string {
@@ -90,22 +92,24 @@ func getMigrationString(da dashAlert) string {
 }
 
 func (m *migration) makeAlertRule(cond condition, da dashAlert, folderUID string) (*alertRule, error) {
-	annotations := addMigrationInfo(&da)
+	lbls, annotations := addMigrationInfo(&da)
+	lbls["alertname"] = da.Name
+	annotations["message"] = da.Message
 
 	ar := &alertRule{
-		OrgId:           da.OrgId,
+		OrgID:           da.OrgId,
 		Title:           da.Name, // TODO: Make sure all names are unique, make new name on constraint insert error.
-		Uid:             util.GenerateShortUID(),
+		UID:             util.GenerateShortUID(),
 		Condition:       cond.Condition,
 		Data:            cond.Data,
 		IntervalSeconds: ruleAdjustInterval(da.Frequency),
 		Version:         1,
-		NamespaceUid:    folderUID, // Folder already created, comes from env var.
+		NamespaceUID:    folderUID, // Folder already created, comes from env var.
 		RuleGroup:       da.Name,
 		For:             duration(da.For),
 		Updated:         time.Now().UTC(),
 		Annotations:     annotations,
-		Labels:          map[string]string{},
+		Labels:          lbls,
 	}
 
 	var err error
@@ -117,6 +121,14 @@ func (m *migration) makeAlertRule(cond condition, da dashAlert, folderUID string
 	ar.ExecErrState, err = transExecErr(da.ParsedSettings.ExecutionErrorState)
 	if err != nil {
 		return nil, err
+	}
+
+	// Label for routing and silences.
+	n, v := getLabelForRouteMatching(ar.UID)
+	ar.Labels[n] = v
+
+	if err := m.addSilence(da, ar); err != nil {
+		m.mg.Logger.Error("alert migration error: failed to create silence", "rule_name", ar.Title, "err", err)
 	}
 
 	return ar, nil

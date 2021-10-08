@@ -11,10 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/grafana/grafana/pkg/services/encryption/ossencryption"
+
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	"github.com/prometheus/alertmanager/notify"
 	"github.com/prometheus/alertmanager/types"
 	"github.com/prometheus/common/model"
@@ -34,7 +35,7 @@ func TestPushoverNotifier(t *testing.T) {
 		settings     string
 		alerts       []*types.Alert
 		expMsg       map[string]string
-		expInitError error
+		expInitError string
 		expMsgError  error
 	}{
 		{
@@ -47,7 +48,7 @@ func TestPushoverNotifier(t *testing.T) {
 				{
 					Alert: model.Alert{
 						Labels:      model.LabelSet{"__alert_rule_uid__": "rule uid", "alertname": "alert1", "lbl1": "val1"},
-						Annotations: model.LabelSet{"ann1": "annv1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
 					},
 				},
 			},
@@ -56,14 +57,13 @@ func TestPushoverNotifier(t *testing.T) {
 				"token":     "<apiToken>",
 				"priority":  "0",
 				"sound":     "",
-				"title":     "[FIRING:1]  (rule uid val1)",
+				"title":     "[FIRING:1]  (val1)",
 				"url":       "http://localhost/alerting/list",
 				"url_title": "Show alert rule",
-				"message":   "\n**Firing**\nLabels:\n - alertname = alert1\n - __alert_rule_uid__ = rule uid\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+				"message":   "**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
 				"html":      "1",
 			},
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		},
 		{
 			name: "Custom config with multiple alerts",
@@ -106,40 +106,31 @@ func TestPushoverNotifier(t *testing.T) {
 				"expire":    "86400",
 				"device":    "device",
 			},
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		},
 		{
 			name: "Missing user key",
 			settings: `{
 				"apiToken": "<apiToken>"
 			}`,
-			expInitError: alerting.ValidationError{Reason: "user key not found"},
+			expInitError: `failed to validate receiver "pushover_testing" of type "pushover": user key not found`,
 		}, {
 			name: "Missing api key",
 			settings: `{
 				"userKey": "<userKey>"
 			}`,
-			expInitError: alerting.ValidationError{Reason: "API token not found"},
-		}, {
-			name: "Error in building message",
-			settings: `{
-				"apiToken": "<apiToken>",
-				"userKey": "<userKey>",
-				"message": "{{ .BrokenTemplate }"
-			}`,
-			expMsgError: errors.New("failed to template pushover message: template: :1: unexpected \"}\" in operand"),
+			expInitError: `failed to validate receiver "pushover_testing" of type "pushover": API token not found`,
 		},
 	}
 
 	for _, c := range cases {
-		origGetBoundary := getBoundary
+		origGetBoundary := GetBoundary
 		boundary := "abcd"
-		getBoundary = func() string {
+		GetBoundary = func() string {
 			return boundary
 		}
 		t.Cleanup(func() {
-			getBoundary = origGetBoundary
+			GetBoundary = origGetBoundary
 		})
 
 		t.Run(c.name, func(t *testing.T) {
@@ -152,10 +143,11 @@ func TestPushoverNotifier(t *testing.T) {
 				Settings: settingsJSON,
 			}
 
-			pn, err := NewPushoverNotifier(m, tmpl)
-			if c.expInitError != nil {
+			decryptFn := ossencryption.ProvideService().GetDecryptedValue
+			pn, err := NewPushoverNotifier(m, tmpl, decryptFn)
+			if c.expInitError != "" {
 				require.Error(t, err)
-				require.Equal(t, c.expInitError.Error(), err.Error())
+				require.Equal(t, c.expInitError, err.Error())
 				return
 			}
 			require.NoError(t, err)

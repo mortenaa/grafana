@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/grafana/grafana/pkg/api/dtos"
+	"github.com/grafana/grafana/pkg/api/navlinks"
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/models"
 	ac "github.com/grafana/grafana/pkg/services/accesscontrol"
@@ -35,7 +36,7 @@ func (hs *HTTPServer) getProfileNode(c *models.ReqContext) *dtos.NavLink {
 	if setting.AddChangePasswordLink() {
 		children = append(children, &dtos.NavLink{
 			Text: "Change password", Id: "change-password", Url: hs.Cfg.AppSubURL + "/profile/password",
-			Icon: "lock", HideFromMenu: true,
+			Icon: "lock",
 		})
 	}
 
@@ -110,7 +111,7 @@ func (hs *HTTPServer) getAppLinks(c *models.ReqContext) ([]*dtos.NavLink, error)
 
 			if include.Type == "dashboard" && include.AddToNav {
 				link := &dtos.NavLink{
-					Url:  hs.Cfg.AppSubURL + "/dashboard/db/" + include.Slug,
+					Url:  hs.Cfg.AppSubURL + include.GetSlugOrUIDLink(),
 					Text: include.Name,
 				}
 				appLink.Children = append(appLink.Children, link)
@@ -122,6 +123,11 @@ func (hs *HTTPServer) getAppLinks(c *models.ReqContext) ([]*dtos.NavLink, error)
 		}
 	}
 
+	if len(appLinks) > 0 {
+		sort.SliceStable(appLinks, func(i, j int) bool {
+			return appLinks[i].Text < appLinks[j].Text
+		})
+	}
 	return appLinks, nil
 }
 
@@ -186,7 +192,11 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 		Children:   dashboardChildNavs,
 	})
 
-	if setting.ExploreEnabled && (c.OrgRole == models.ROLE_ADMIN || c.OrgRole == models.ROLE_EDITOR || setting.ViewersCanEdit) {
+	canExplore := func(context *models.ReqContext) bool {
+		return c.OrgRole == models.ROLE_ADMIN || c.OrgRole == models.ROLE_EDITOR || setting.ViewersCanEdit
+	}
+
+	if setting.ExploreEnabled && hasAccess(canExplore, ac.EvalPermission(ac.ActionDatasourcesExplore)) {
 		navTree = append(navTree, &dtos.NavLink{
 			Text:       "Explore",
 			Id:         "explore",
@@ -201,15 +211,16 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 		navTree = append(navTree, hs.getProfileNode(c))
 	}
 
-	if setting.AlertingEnabled {
+	if setting.AlertingEnabled || hs.Cfg.UnifiedAlerting.Enabled {
 		alertChildNavs := []*dtos.NavLink{
 			{Text: "Alert rules", Id: "alert-list", Url: hs.Cfg.AppSubURL + "/alerting/list", Icon: "list-ul"},
 		}
-		if hs.Cfg.IsNgAlertEnabled() {
+		if hs.Cfg.UnifiedAlerting.Enabled {
+			alertChildNavs = append(alertChildNavs, &dtos.NavLink{Text: "Alert groups", Id: "groups", Url: hs.Cfg.AppSubURL + "/alerting/groups", Icon: "layer-group"})
 			alertChildNavs = append(alertChildNavs, &dtos.NavLink{Text: "Silences", Id: "silences", Url: hs.Cfg.AppSubURL + "/alerting/silences", Icon: "bell-slash"})
 		}
 		if c.OrgRole == models.ROLE_ADMIN || c.OrgRole == models.ROLE_EDITOR {
-			if hs.Cfg.IsNgAlertEnabled() {
+			if hs.Cfg.UnifiedAlerting.Enabled {
 				alertChildNavs = append(alertChildNavs, &dtos.NavLink{
 					Text: "Contact points", Id: "receivers", Url: hs.Cfg.AppSubURL + "/alerting/notifications",
 					Icon: "comment-alt-share",
@@ -221,6 +232,12 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 					Icon: "comment-alt-share",
 				})
 			}
+		}
+		if c.OrgRole == models.ROLE_ADMIN && hs.Cfg.UnifiedAlerting.Enabled {
+			alertChildNavs = append(alertChildNavs, &dtos.NavLink{
+				Text: "Admin", Id: "alerting-admin", Url: hs.Cfg.AppSubURL + "/alerting/admin",
+				Icon: "cog",
+			})
 		}
 
 		navTree = append(navTree, &dtos.NavLink{
@@ -242,7 +259,7 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 
 	configNodes := []*dtos.NavLink{}
 
-	if c.OrgRole == models.ROLE_ADMIN {
+	if hasAccess(ac.ReqOrgAdmin, dataSourcesConfigurationAccessEvaluator) {
 		configNodes = append(configNodes, &dtos.NavLink{
 			Text:        "Data sources",
 			Icon:        "database",
@@ -252,7 +269,7 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 		})
 	}
 
-	if hasAccess(ac.ReqOrgAdmin, ac.ActionOrgUsersRead, ac.ScopeUsersAll) {
+	if hasAccess(ac.ReqOrgAdmin, ac.EvalPermission(ac.ActionOrgUsersRead, ac.ScopeUsersAll)) {
 		configNodes = append(configNodes, &dtos.NavLink{
 			Text:        "Users",
 			Id:          "users",
@@ -297,6 +314,30 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 		})
 	}
 
+	if hs.Cfg.FeatureToggles["live-pipeline"] {
+		liveNavLinks := []*dtos.NavLink{}
+
+		liveNavLinks = append(liveNavLinks, &dtos.NavLink{
+			Text: "Status", Id: "live-status", Url: hs.Cfg.AppSubURL + "/live", Icon: "exchange-alt",
+		})
+		liveNavLinks = append(liveNavLinks, &dtos.NavLink{
+			Text: "Pipeline", Id: "live-pipeline", Url: hs.Cfg.AppSubURL + "/live/pipeline", Icon: "arrow-to-right",
+		})
+		liveNavLinks = append(liveNavLinks, &dtos.NavLink{
+			Text: "Cloud", Id: "live-cloud", Url: hs.Cfg.AppSubURL + "/live/cloud", Icon: "cloud-upload",
+		})
+
+		navTree = append(navTree, &dtos.NavLink{
+			Id:           "live",
+			Text:         "Live",
+			SubTitle:     "Event Streaming",
+			Icon:         "exchange-alt",
+			Url:          hs.Cfg.AppSubURL + "/live",
+			Children:     liveNavLinks,
+			HideFromMenu: true,
+		})
+	}
+
 	if len(configNodes) > 0 {
 		navTree = append(navTree, &dtos.NavLink{
 			Id:         dtos.NavIDCfg,
@@ -312,16 +353,8 @@ func (hs *HTTPServer) getNavTree(c *models.ReqContext, hasEditPerm bool) ([]*dto
 	adminNavLinks := hs.buildAdminNavLinks(c)
 
 	if len(adminNavLinks) > 0 {
-		navTree = append(navTree, &dtos.NavLink{
-			Text:         "Server Admin",
-			SubTitle:     "Manage all users and orgs",
-			HideFromTabs: true,
-			Id:           "admin",
-			Icon:         "shield",
-			Url:          adminNavLinks[0].Url,
-			SortWeight:   dtos.WeightAdmin,
-			Children:     adminNavLinks,
-		})
+		serverAdminNode := navlinks.GetServerAdminNode(adminNavLinks)
+		navTree = append(navTree, serverAdminNode)
 	}
 
 	helpVersion := fmt.Sprintf(`%s v%s (%s)`, setting.ApplicationName, setting.BuildVersion, setting.BuildCommit)
@@ -347,7 +380,7 @@ func (hs *HTTPServer) buildAdminNavLinks(c *models.ReqContext) []*dtos.NavLink {
 	hasAccess := ac.HasAccess(hs.AccessControl, c)
 	adminNavLinks := []*dtos.NavLink{}
 
-	if hasAccess(ac.ReqGrafanaAdmin, ac.ActionUsersRead, ac.ScopeGlobalUsersAll) {
+	if hasAccess(ac.ReqGrafanaAdmin, ac.EvalPermission(ac.ActionUsersRead, ac.ScopeGlobalUsersAll)) {
 		adminNavLinks = append(adminNavLinks, &dtos.NavLink{
 			Text: "Users", Id: "global-users", Url: hs.Cfg.AppSubURL + "/admin/users", Icon: "user",
 		})
@@ -357,17 +390,23 @@ func (hs *HTTPServer) buildAdminNavLinks(c *models.ReqContext) []*dtos.NavLink {
 		adminNavLinks = append(adminNavLinks, &dtos.NavLink{
 			Text: "Orgs", Id: "global-orgs", Url: hs.Cfg.AppSubURL + "/admin/orgs", Icon: "building",
 		})
+	}
+
+	if hasAccess(ac.ReqGrafanaAdmin, ac.EvalPermission(ac.ActionSettingsRead)) {
 		adminNavLinks = append(adminNavLinks, &dtos.NavLink{
 			Text: "Settings", Id: "server-settings", Url: hs.Cfg.AppSubURL + "/admin/settings", Icon: "sliders-v-alt",
 		})
+	}
+
+	if hs.Cfg.LDAPEnabled && hasAccess(ac.ReqGrafanaAdmin, ac.EvalPermission(ac.ActionLDAPStatusRead)) {
 		adminNavLinks = append(adminNavLinks, &dtos.NavLink{
-			Text: "Stats", Id: "server-stats", Url: hs.Cfg.AppSubURL + "/admin/stats", Icon: "graph-bar",
+			Text: "LDAP", Id: "ldap", Url: hs.Cfg.AppSubURL + "/admin/ldap", Icon: "book",
 		})
 	}
 
-	if hs.Cfg.LDAPEnabled && hasAccess(ac.ReqGrafanaAdmin, ac.ActionLDAPStatusRead) {
+	if hs.Cfg.PluginAdminEnabled && hasAccess(ac.ReqGrafanaAdmin, ac.EvalPermission(ac.ActionPluginsManage)) {
 		adminNavLinks = append(adminNavLinks, &dtos.NavLink{
-			Text: "LDAP", Id: "ldap", Url: hs.Cfg.AppSubURL + "/admin/ldap", Icon: "book",
+			Text: "Plugins", Id: "admin-plugins", Url: hs.Cfg.AppSubURL + "/admin/plugins", Icon: "plug",
 		})
 	}
 
@@ -389,7 +428,7 @@ func (hs *HTTPServer) setIndexViewData(c *models.ReqContext) (*dtos.IndexViewDat
 	settings["dateFormats"] = hs.Cfg.DateFormats
 
 	prefsQuery := models.GetPreferencesWithDefaultsQuery{User: c.SignedInUser}
-	if err := bus.Dispatch(&prefsQuery); err != nil {
+	if err := bus.DispatchCtx(c.Req.Context(), &prefsQuery); err != nil {
 		return nil, err
 	}
 	prefs := prefsQuery.Result
@@ -456,6 +495,7 @@ func (hs *HTTPServer) setIndexViewData(c *models.ReqContext) (*dtos.IndexViewDat
 		Sentry:                  &hs.Cfg.Sentry,
 		Nonce:                   c.RequestNonce,
 		ContentDeliveryURL:      hs.Cfg.GetContentDeliveryURL(hs.License.ContentDeliveryPrefix()),
+		LoadingLogo:             "public/img/grafana_icon.svg",
 	}
 
 	if hs.Cfg.FeatureToggles["accesscontrol"] {

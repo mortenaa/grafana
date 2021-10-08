@@ -1,11 +1,19 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+
+	"github.com/grafana/grafana/pkg/services/searchusers/filters"
+
+	"github.com/grafana/grafana/pkg/services/searchusers"
+
+	"github.com/stretchr/testify/require"
+	"gopkg.in/macaron.v1"
 
 	"github.com/grafana/grafana/pkg/api/response"
 	"github.com/grafana/grafana/pkg/api/routing"
@@ -13,15 +21,14 @@ import (
 	"github.com/grafana/grafana/pkg/infra/fs"
 	"github.com/grafana/grafana/pkg/infra/remotecache"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/registry"
+	"github.com/grafana/grafana/pkg/services/accesscontrol"
+	accesscontrolmock "github.com/grafana/grafana/pkg/services/accesscontrol/mock"
 	"github.com/grafana/grafana/pkg/services/auth"
-	"github.com/grafana/grafana/pkg/services/auth/jwt"
 	"github.com/grafana/grafana/pkg/services/contexthandler"
+	"github.com/grafana/grafana/pkg/services/quota"
 	"github.com/grafana/grafana/pkg/services/rendering"
 	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/setting"
-	"github.com/stretchr/testify/require"
-	"gopkg.in/macaron.v1"
 )
 
 func loggedInUserScenario(t *testing.T, desc string, url string, fn scenarioFunc) {
@@ -41,6 +48,10 @@ func loggedInUserScenarioWithRole(t *testing.T, desc string, method string, url 
 			sc.context.OrgRole = role
 			if sc.handlerFunc != nil {
 				return sc.handlerFunc(sc.context)
+			}
+
+			if sc.handlerFuncCtx != nil {
+				return sc.handlerFuncCtx(context.Background(), sc.context)
 			}
 
 			return nil
@@ -66,6 +77,10 @@ func anonymousUserScenario(t *testing.T, desc string, method string, url string,
 			sc.context = c
 			if sc.handlerFunc != nil {
 				return sc.handlerFunc(sc.context)
+			}
+
+			if sc.handlerFuncCtx != nil {
+				return sc.handlerFuncCtx(context.Background(), sc.context)
 			}
 
 			return nil
@@ -107,7 +122,6 @@ func (sc *scenarioContext) fakeReqWithParams(method, url string, queryParams map
 	}
 	req.URL.RawQuery = q.Encode()
 	sc.req = req
-
 	return sc
 }
 
@@ -138,6 +152,7 @@ type scenarioContext struct {
 	context              *models.ReqContext
 	resp                 *httptest.ResponseRecorder
 	handlerFunc          handlerFunc
+	handlerFuncCtx       handlerFuncCtx
 	defaultHandler       macaron.Handler
 	req                  *http.Request
 	url                  string
@@ -150,6 +165,7 @@ func (sc *scenarioContext) exec() {
 
 type scenarioFunc func(c *scenarioContext)
 type handlerFunc func(c *models.ReqContext) response.Response
+type handlerFuncCtx func(ctx context.Context, c *models.ReqContext) response.Response
 
 func getContextHandler(t *testing.T, cfg *setting.Cfg) *contexthandler.ContextHandler {
 	t.Helper()
@@ -166,35 +182,7 @@ func getContextHandler(t *testing.T, cfg *setting.Cfg) *contexthandler.ContextHa
 	userAuthTokenSvc := auth.NewFakeUserAuthTokenService()
 	renderSvc := &fakeRenderService{}
 	authJWTSvc := models.NewFakeJWTService()
-	ctxHdlr := &contexthandler.ContextHandler{}
-
-	err := registry.BuildServiceGraph([]interface{}{cfg}, []*registry.Descriptor{
-		{
-			Name:     sqlstore.ServiceName,
-			Instance: sqlStore,
-		},
-		{
-			Name:     remotecache.ServiceName,
-			Instance: remoteCacheSvc,
-		},
-		{
-			Name:     auth.ServiceName,
-			Instance: userAuthTokenSvc,
-		},
-		{
-			Name:     rendering.ServiceName,
-			Instance: renderSvc,
-		},
-		{
-			Name:     jwt.ServiceName,
-			Instance: authJWTSvc,
-		},
-		{
-			Name:     contexthandler.ServiceName,
-			Instance: ctxHdlr,
-		},
-	})
-	require.NoError(t, err)
+	ctxHdlr := contexthandler.ProvideService(cfg, userAuthTokenSvc, authJWTSvc, remoteCacheSvc, renderSvc, sqlStore)
 
 	return ctxHdlr
 }
@@ -213,10 +201,7 @@ func setupScenarioContext(t *testing.T, url string) *scenarioContext {
 	require.Truef(t, exists, "Views should be in %q", viewsPath)
 
 	sc.m = macaron.New()
-	sc.m.Use(macaron.Renderer(macaron.RenderOptions{
-		Directory: viewsPath,
-		Delims:    macaron.Delims{Left: "[[", Right: "]]"},
-	}))
+	sc.m.UseMiddleware(macaron.Renderer(viewsPath, "[[", "]]"))
 	sc.m.Use(getContextHandler(t, cfg).Middleware)
 
 	return sc
@@ -228,4 +213,36 @@ type fakeRenderService struct {
 
 func (s *fakeRenderService) Init() error {
 	return nil
+}
+
+func setupAccessControlScenarioContext(t *testing.T, cfg *setting.Cfg, url string, permissions []*accesscontrol.Permission) (*scenarioContext, *HTTPServer) {
+	cfg.FeatureToggles = make(map[string]bool)
+	cfg.FeatureToggles["accesscontrol"] = true
+	cfg.Quota.Enabled = false
+
+	bus := bus.GetBus()
+	hs := &HTTPServer{
+		Cfg:                cfg,
+		Bus:                bus,
+		Live:               newTestLive(t),
+		QuotaService:       &quota.QuotaService{Cfg: cfg},
+		RouteRegister:      routing.NewRouteRegister(),
+		AccessControl:      accesscontrolmock.New().WithPermissions(permissions),
+		searchUsersService: searchusers.ProvideUsersService(bus, filters.ProvideOSSSearchUserFilter()),
+	}
+
+	sc := setupScenarioContext(t, url)
+
+	hs.registerRoutes()
+	hs.RouteRegister.Register(sc.m.Router)
+
+	return sc, hs
+}
+
+type accessControlTestCase struct {
+	expectedCode int
+	desc         string
+	url          string
+	method       string
+	permissions  []*accesscontrol.Permission
 }

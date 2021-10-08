@@ -85,6 +85,7 @@ export interface CombinedRule {
 
 export interface CombinedRuleGroup {
   name: string;
+  interval?: string;
   rules: CombinedRule[];
 }
 
@@ -101,20 +102,41 @@ export interface RuleWithLocation {
   rule: RulerRuleDTO;
 }
 
+export interface PromRuleWithLocation {
+  rule: AlertingRule;
+  dataSourceName: string;
+  namespaceName: string;
+  groupName: string;
+}
+
 export interface CloudRuleIdentifier {
+  ruleSourceName: string;
+  namespace: string;
+  groupName: string;
+  rulerRuleHash: number;
+}
+export interface GrafanaRuleIdentifier {
+  uid: string;
+}
+
+// Rule read directly from Prometheus without existing in the ruler API
+export interface PrometheusRuleIdentifier {
   ruleSourceName: string;
   namespace: string;
   groupName: string;
   ruleHash: number;
 }
 
-export interface RuleFilterState {
+export type RuleIdentifier = CloudRuleIdentifier | GrafanaRuleIdentifier | PrometheusRuleIdentifier;
+export interface FilterState {
   queryString?: string;
   dataSource?: string;
   alertState?: string;
-}
-export interface GrafanaRuleIdentifier {
-  uid: string;
+  groupBy?: string[];
+  ruleType?: string;
 }
 
-export type RuleIdentifier = CloudRuleIdentifier | GrafanaRuleIdentifier;
+export interface SilenceFilterState {
+  queryString?: string;
+  silenceState?: string;
+}

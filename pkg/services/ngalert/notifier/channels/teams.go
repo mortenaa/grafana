@@ -4,18 +4,14 @@ import (
 	"context"
 	"encoding/json"
 
-	gokit_log "github.com/go-kit/kit/log"
 	"github.com/pkg/errors"
-	"github.com/prometheus/alertmanager/notify"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/alertmanager/types"
 
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	old_notifiers "github.com/grafana/grafana/pkg/services/alerting/notifiers"
-	"github.com/grafana/grafana/pkg/services/ngalert/logging"
 )
 
 // TeamsNotifier is responsible for sending
@@ -31,12 +27,12 @@ type TeamsNotifier struct {
 // NewTeamsNotifier is the constructor for Teams notifier.
 func NewTeamsNotifier(model *NotificationChannelConfig, t *template.Template) (*TeamsNotifier, error) {
 	if model.Settings == nil {
-		return nil, alerting.ValidationError{Reason: "No Settings Supplied"}
+		return nil, receiverInitError{Cfg: *model, Reason: "no settings supplied"}
 	}
 
 	u := model.Settings.Get("url").MustString()
 	if u == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find url property in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find url property in settings"}
 	}
 
 	return &TeamsNotifier{
@@ -48,7 +44,7 @@ func NewTeamsNotifier(model *NotificationChannelConfig, t *template.Template) (*
 			Settings:              model.Settings,
 		}),
 		URL:     u,
-		Message: model.Settings.Get("message").MustString(`{{ template "default.message" .}}`),
+		Message: model.Settings.Get("message").MustString(`{{ template "teams.default.message" .}}`),
 		log:     log.New("alerting.notifier.teams"),
 		tmpl:    t,
 	}, nil
@@ -56,14 +52,10 @@ func NewTeamsNotifier(model *NotificationChannelConfig, t *template.Template) (*
 
 // Notify send an alert notification to Microsoft teams.
 func (tn *TeamsNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool, error) {
-	data := notify.GetTemplateData(ctx, tn.tmpl, as, gokit_log.NewLogfmtLogger(logging.NewWrapper(tn.log)))
 	var tmplErr error
-	tmpl := notify.TmplText(tn.tmpl, data, &tmplErr)
+	tmpl, _ := TmplText(ctx, tn.tmpl, as, tn.log, &tmplErr)
 
-	ruleURL, err := joinUrlPath(tn.tmpl.ExternalURL.String(), "/alerting/list")
-	if err != nil {
-		return false, err
-	}
+	ruleURL := joinUrlPath(tn.tmpl.ExternalURL.String(), "/alerting/list", tn.log)
 
 	title := tmpl(`{{ template "default.title" . }}`)
 	body := map[string]interface{}{
@@ -95,15 +87,16 @@ func (tn *TeamsNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool, 
 		},
 	}
 
+	u := tmpl(tn.URL)
 	if tmplErr != nil {
-		return false, errors.Wrap(tmplErr, "failed to template Teams message")
+		tn.log.Debug("failed to template Teams message", "err", tmplErr.Error())
 	}
 
 	b, err := json.Marshal(&body)
 	if err != nil {
 		return false, errors.Wrap(err, "marshal json")
 	}
-	cmd := &models.SendWebhookSync{Url: tn.URL, Body: string(b)}
+	cmd := &models.SendWebhookSync{Url: u, Body: string(b)}
 
 	if err := bus.DispatchCtx(ctx, cmd); err != nil {
 		return false, errors.Wrap(err, "send notification to Teams")

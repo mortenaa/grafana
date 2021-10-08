@@ -46,6 +46,7 @@ func (timeSeriesQuery cloudMonitoringTimeSeriesQuery) run(ctx context.Context, t
 	}
 	intervalCalculator := interval.NewCalculator(interval.CalculatorOptions{})
 	interval := intervalCalculator.Calculate(*tsdbQuery.TimeRange, time.Duration(timeSeriesQuery.IntervalMS/1000)*time.Second)
+
 	timeFormat := "2006/01/02-15:04:05"
 	timeSeriesQuery.Query += fmt.Sprintf(" | graph_period %s | within d'%s', d'%s'", interval.Text, from.UTC().Format(timeFormat), to.UTC().Format(timeFormat))
 
@@ -122,9 +123,8 @@ func (timeSeriesQuery cloudMonitoringTimeSeriesQuery) parseResponse(queryRes *pl
 				labels[key][strVal] = true
 				seriesLabels[key] = strVal
 			case "INT64":
-				intVal := strconv.FormatInt(labelValue.Int64Value, 10)
-				labels[key][intVal] = true
-				seriesLabels[key] = intVal
+				labels[key][labelValue.Int64Value] = true
+				seriesLabels[key] = labelValue.Int64Value
 			default:
 				labels[key][labelValue.StringValue] = true
 				seriesLabels[key] = labelValue.StringValue
@@ -284,8 +284,7 @@ func (timeSeriesQuery cloudMonitoringTimeSeriesQuery) parseToAnnotations(queryRe
 				strVal := strconv.FormatBool(labelValue.BoolValue)
 				value = strVal
 			case "INT64":
-				intVal := strconv.FormatInt(labelValue.Int64Value, 10)
-				value = intVal
+				value = labelValue.Int64Value
 			default:
 				value = labelValue.StringValue
 			}

@@ -1,8 +1,8 @@
 import { Labels } from './data';
-import { GraphSeriesXY } from './graph';
 import { DataFrame } from './dataFrame';
+import { DataQuery } from './query';
 import { AbsoluteTimeRange } from './time';
-import { DataQuery } from './datasource';
+import { DataQueryResponse } from './datasource';
 
 /**
  * Mapping of log level abbreviation to canonical log level.
@@ -84,7 +84,7 @@ export interface LogsModel {
   hasUniqueLabels: boolean;
   meta?: LogsMetaItem[];
   rows: LogRowModel[];
-  series?: GraphSeriesXY[];
+  series?: DataFrame[];
   visibleRange?: AbsoluteTimeRange;
   queries?: DataQuery[];
 }
@@ -143,3 +143,31 @@ export enum LogsDedupDescription {
   numbers = 'De-duplication of successive lines that are identical when ignoring numbers, e.g., IP addresses, latencies.',
   signature = 'De-duplication of successive lines that have identical punctuation and whitespace.',
 }
+
+/**
+ * @alpha
+ */
+export interface DataSourceWithLogsContextSupport {
+  /**
+   * Retrieve context for a given log row
+   */
+  getLogRowContext: <TContextQueryOptions extends {}>(
+    row: LogRowModel,
+    options?: TContextQueryOptions
+  ) => Promise<DataQueryResponse>;
+
+  showContextToggle(row?: LogRowModel): boolean;
+}
+
+/**
+ * @alpha
+ */
+export const hasLogsContextSupport = (datasource: any): datasource is DataSourceWithLogsContextSupport => {
+  if (!datasource) {
+    return false;
+  }
+
+  const withLogsSupport = datasource as DataSourceWithLogsContextSupport;
+
+  return withLogsSupport.getLogRowContext !== undefined && withLogsSupport.showContextToggle !== undefined;
+};

@@ -1,18 +1,26 @@
 +++
-title = " Difference between unified and old Grafana alerts"
-description = "Pause an existing alert rule"
-keywords = ["grafana", "alerting", "guide", "rules", "view"]
+title = "What's New with Grafana 8 alerts"
+description = "What's New with Grafana 8 Alerts"
+keywords = ["grafana", "alerting", "guide"]
 weight = 112
 +++
 
-# Difference between unified and old Grafana alerts
+# What's New with Grafana 8 alerts
 
-The `ngalert` feature toggle enables the beta version of our new alerting system. 
+The alerts released with Grafana 8.0 centralizes alerting information for Grafana managed alerts and alerts from Prometheus-compatible datasources in one UI and API. You can create and edit alerting rules for Grafana managed alerts, Cortex alerts, and Loki alerts as well as see alerting information from prometheus-compatible datasources in a single, searchable view.
 
->**Note:** It is recommended to backup Grafana's database before enabling this feature.
+## Multi-dimensional alerting
 
-When the feature flag is enabled, dashboard alerting is disabled and dashboard alerts are migrated into the system. Going to "Alert List" will take you to the new system.
+Create alerts that will give you system-wide visibility with a single alerting rule. With Grafana 8 alerts, you are able to generate multiple alert instances from a single rule eg. creating a rule to monitor disk usage for multiple mount points on a single host. The evaluation engine is able to return multiple time series from a single query. Each time series is identified by its label set.
 
-Once you disable the new alters, all migrated and newly created alerts in the new system are deleted, and dashboard alerting will be enabled again.
+## Create alerts outside of Dashboards
 
-During beta, the migration of existing dashboard rules may change.
+Grafana legacy alerts were tied to a dashboard. Grafana 8 Alerts allow you to create queries and expressions that can combine data from multiple sources, in unique ways. You are still able to link dashboards and panels to alerting rules, allowing you to quickly troubleshoot the system under observation, by linking a dashboard and/or panel ID to the alerting rule.
+
+## Create Loki and Cortex alerting rules
+
+With Grafana 8 Alerts you are able to manage your Loki and Cortex alerting rules using the same UI and API as your Grafana managed alerts.
+
+## View and search for alerts from Prometheus
+
+You can now display all of your alerting information in one, searchable UI. Alerts for Prometheus compatible datasources are listed below Grafana managed alerts. Search for labels across multiple datasources to quickly find all of the relevant alerts.

@@ -15,16 +15,20 @@ import (
 
 func TestAvailableChannels(t *testing.T) {
 	dir, path := testinfra.CreateGrafDir(t, testinfra.GrafanaOpts{
-		EnableFeatureToggles: []string{"ngalert"},
-		DisableAnonymous:     true,
+		DisableLegacyAlerting: true,
+		EnableUnifiedAlerting: true,
+		DisableAnonymous:      true,
 	})
 
-	store := testinfra.SetUpDatabase(t, dir)
+	grafanaListedAddr, store := testinfra.StartGrafana(t, dir, path)
 	store.Bus = bus.GetBus()
-	grafanaListedAddr := testinfra.StartGrafana(t, dir, path, store)
 
 	// Create a user to make authenticated requests
-	require.NoError(t, createUser(t, store, models.ROLE_EDITOR, "grafana", "password"))
+	createUser(t, store, models.CreateUserCommand{
+		DefaultOrgRole: string(models.ROLE_EDITOR),
+		Password:       "password",
+		Login:          "grafana",
+	})
 
 	alertsURL := fmt.Sprintf("http://grafana:password@%s/api/alert-notifiers", grafanaListedAddr)
 	// nolint:gosec
@@ -1385,6 +1389,22 @@ var expAvailableChannelJsonOutput = `
 		"required": true,
 		"validationRule": "",
 		"secure": false
+	  },
+	  {
+		"label": "Avatar URL",
+		"description": "",
+		"element": "input",
+		"inputType": "text",
+		"placeholder": "",
+		"propertyName": "avatar_url",
+		"selectOptions": null,
+		"showWhen": {
+		  "field": "",
+		  "is": ""
+		},
+		"required": false,
+		"validationRule": "",
+		"secure": false
 	  }
 	]
   },
@@ -1442,14 +1462,14 @@ var expAvailableChannelJsonOutput = `
     "type": "threema",
     "name": "Threema Gateway",
     "heading": "Threema Gateway settings",
-    "description": "Sends notifications to Threema using the Threema Gateway",
+    "description": "Sends notifications to Threema using Threema Gateway (Basic IDs)",
     "info": "Notifications can be configured for any Threema Gateway ID of type \"Basic\". End-to-End IDs are not currently supported.The Threema Gateway ID can be set up at https://gateway.threema.ch/.",
     "options": [
       {
         "element": "input",
         "inputType": "text",
         "label": "Gateway ID",
-        "description": "Your 8 character Threema Gateway ID (starting with a *).",
+        "description": "Your 8 character Threema Gateway Basic ID (starting with a *).",
         "placeholder": "*3MAGWID",
         "propertyName": "gateway_id",
         "selectOptions": null,

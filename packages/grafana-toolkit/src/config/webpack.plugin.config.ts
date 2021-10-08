@@ -191,8 +191,6 @@ const getBaseWebpackConfig: WebpackConfigurationGetter = async (options) => {
       '@grafana/ui',
       '@grafana/runtime',
       '@grafana/data',
-      'monaco-editor',
-      'react-monaco-editor',
       // @ts-ignore
       (context, request, callback) => {
         const prefix = 'grafana/';
@@ -276,7 +274,7 @@ export const loadWebpackConfig: WebpackConfigurationGetter = async (options) => 
       );
     }
     return (configGetter as CustomWebpackConfigurationGetter)(baseConfig, options);
-  } catch (err) {
+  } catch (err: any) {
     if (err.code === 'ENOENT') {
       return baseConfig;
     }

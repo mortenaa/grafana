@@ -6,27 +6,24 @@ import (
 	"net/url"
 	"path"
 
-	gokit_log "github.com/go-kit/kit/log"
-	"github.com/prometheus/alertmanager/notify"
-	"github.com/prometheus/alertmanager/template"
-	"github.com/prometheus/alertmanager/types"
-
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	old_notifiers "github.com/grafana/grafana/pkg/services/alerting/notifiers"
+	"github.com/grafana/grafana/pkg/setting"
+	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/alertmanager/types"
 )
 
-const (
+var (
 	LineNotifyURL string = "https://notify-api.line.me/api/notify"
 )
 
 // NewLineNotifier is the constructor for the LINE notifier
-func NewLineNotifier(model *NotificationChannelConfig, t *template.Template) (*LineNotifier, error) {
-	token := model.DecryptedValue("token", model.Settings.Get("token").MustString())
+func NewLineNotifier(model *NotificationChannelConfig, t *template.Template, fn GetDecryptedValueFn) (*LineNotifier, error) {
+	token := fn(context.Background(), model.SecureSettings, "token", model.Settings.Get("token").MustString(), setting.SecretKey)
 	if token == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find token in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find token in settings"}
 	}
 
 	return &LineNotifier{
@@ -58,9 +55,8 @@ func (ln *LineNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool, e
 
 	ruleURL := path.Join(ln.tmpl.ExternalURL.String(), "/alerting/list")
 
-	data := notify.GetTemplateData(ctx, ln.tmpl, as, gokit_log.NewNopLogger())
 	var tmplErr error
-	tmpl := notify.TmplText(ln.tmpl, data, &tmplErr)
+	tmpl, _ := TmplText(ctx, ln.tmpl, as, ln.log, &tmplErr)
 
 	body := fmt.Sprintf(
 		"%s\n%s\n\n%s",
@@ -69,7 +65,7 @@ func (ln *LineNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool, e
 		tmpl(`{{ template "default.message" . }}`),
 	)
 	if tmplErr != nil {
-		return false, fmt.Errorf("failed to template Line message: %w", tmplErr)
+		ln.log.Debug("failed to template Line message", "err", tmplErr.Error())
 	}
 
 	form := url.Values{}

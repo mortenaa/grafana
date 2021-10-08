@@ -13,7 +13,6 @@ import (
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 )
 
 func TestKafkaNotifier(t *testing.T) {
@@ -28,7 +27,7 @@ func TestKafkaNotifier(t *testing.T) {
 		settings       string
 		alerts         []*types.Alert
 		expUrl, expMsg string
-		expInitError   error
+		expInitError   string
 		expMsgError    error
 	}{
 		{
@@ -41,7 +40,7 @@ func TestKafkaNotifier(t *testing.T) {
 				{
 					Alert: model.Alert{
 						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
-						Annotations: model.LabelSet{"ann1": "annv1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
 					},
 				},
 			},
@@ -54,14 +53,13 @@ func TestKafkaNotifier(t *testing.T) {
 						"client": "Grafana",
 						"client_url": "http://localhost/alerting/list",
 						"description": "[FIRING:1]  (val1)",
-						"details": "\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \n\n\n\n\n",
+						"details": "**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\nDashboard: http://localhost/d/abcd\nPanel: http://localhost/d/abcd?viewPanel=efgh\n",
 						"incident_key": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733"
 					  }
 					}
 				  ]
 				}`,
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		}, {
 			name: "Multiple alerts",
 			settings: `{
@@ -90,22 +88,21 @@ func TestKafkaNotifier(t *testing.T) {
 						"client": "Grafana",
 						"client_url": "http://localhost/alerting/list",
 						"description": "[FIRING:2]  ",
-						"details": "\n**Firing**\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSource: \nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv2\nSource: \n\n\n\n\n",
+						"details": "**Firing**\n\nLabels:\n - alertname = alert1\n - lbl1 = val1\nAnnotations:\n - ann1 = annv1\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval1\n\nLabels:\n - alertname = alert1\n - lbl1 = val2\nAnnotations:\n - ann1 = annv2\nSilence: http://localhost/alerting/silence/new?alertmanager=grafana&matchers=alertname%3Dalert1%2Clbl1%3Dval2\n",
 						"incident_key": "6e3538104c14b583da237e9693b76debbc17f0f8058ef20492e5853096cf8733"
 					  }
 					}
 				  ]
 				}`,
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsgError: nil,
 		}, {
 			name:         "Endpoint missing",
 			settings:     `{"kafkaTopic": "sometopic"}`,
-			expInitError: alerting.ValidationError{Reason: "Could not find kafka rest proxy endpoint property in settings"},
+			expInitError: `failed to validate receiver "kafka_testing" of type "kafka": could not find kafka rest proxy endpoint property in settings`,
 		}, {
 			name:         "Topic missing",
 			settings:     `{"kafkaRestProxy": "http://localhost"}`,
-			expInitError: alerting.ValidationError{Reason: "Could not find kafka topic property in settings"},
+			expInitError: `failed to validate receiver "kafka_testing" of type "kafka": could not find kafka topic property in settings`,
 		},
 	}
 
@@ -121,9 +118,9 @@ func TestKafkaNotifier(t *testing.T) {
 			}
 
 			pn, err := NewKafkaNotifier(m, tmpl)
-			if c.expInitError != nil {
+			if c.expInitError != "" {
 				require.Error(t, err)
-				require.Equal(t, c.expInitError.Error(), err.Error())
+				require.Equal(t, c.expInitError, err.Error())
 				return
 			}
 			require.NoError(t, err)

@@ -60,6 +60,22 @@ export class TimeSrv {
     // remember time at load so we can go back to it
     this.timeAtLoad = cloneDeep(this.time);
 
+    const range = rangeUtil.convertRawToRange(
+      this.time,
+      this.dashboard?.getTimezone(),
+      this.dashboard?.fiscalYearStartMonth
+    );
+
+    if (range.to.isBefore(range.from)) {
+      this.setTime(
+        {
+          from: range.raw.to,
+          to: range.raw.from,
+        },
+        false
+      );
+    }
+
     if (this.refresh) {
       this.setAutoRefresh(this.refresh);
     }
@@ -156,7 +172,9 @@ export class TimeSrv {
     this.refresh = getRefreshFromUrl({
       params: paramsJSON,
       currentRefresh: this.refresh,
-      refreshIntervals: this.dashboard?.timepicker?.refresh_intervals,
+      refreshIntervals: Array.isArray(this.dashboard?.timepicker?.refresh_intervals)
+        ? this.dashboard?.timepicker?.refresh_intervals
+        : undefined,
       isAllowedIntervalFn: this.contextSrv.isAllowedInterval,
       minRefreshInterval: config.minRefreshInterval,
     });
@@ -197,21 +215,29 @@ export class TimeSrv {
 
     this.stopAutoRefresh();
 
-    if (interval) {
-      const validInterval = this.contextSrv.getValidInterval(interval);
-      const intervalMs = rangeUtil.intervalToMs(validInterval);
+    const currentUrlState = locationService.getSearchObject();
 
-      this.refreshTimer = setTimeout(() => {
-        this.startNextRefreshTimer(intervalMs);
-        this.refreshDashboard();
-      }, intervalMs);
+    if (!interval) {
+      // Clear URL state
+      if (currentUrlState.refresh) {
+        locationService.partial({ refresh: null }, true);
+      }
+
+      return;
     }
 
-    if (interval) {
-      const refresh = this.contextSrv.getValidInterval(interval);
+    const validInterval = this.contextSrv.getValidInterval(interval);
+    const intervalMs = rangeUtil.intervalToMs(validInterval);
+
+    this.refreshTimer = setTimeout(() => {
+      this.startNextRefreshTimer(intervalMs);
+      this.refreshDashboard();
+    }, intervalMs);
+
+    const refresh = this.contextSrv.getValidInterval(interval);
+
+    if (currentUrlState.refresh !== refresh) {
       locationService.partial({ refresh }, true);
-    } else {
-      locationService.partial({ refresh: null }, true);
     }
   }
 
@@ -263,6 +289,13 @@ export class TimeSrv {
       const urlRange = this.timeRangeForUrl();
       const urlParams = locationService.getSearch();
 
+      const from = urlParams.get('from');
+      const to = urlParams.get('to');
+
+      if (from && to && from === urlRange.from.toString() && to === urlRange.to.toString()) {
+        return;
+      }
+
       urlParams.set('from', urlRange.from.toString());
       urlParams.set('to', urlRange.to.toString());
 
@@ -298,8 +331,8 @@ export class TimeSrv {
     const timezone = this.dashboard ? this.dashboard.getTimezone() : undefined;
 
     return {
-      from: dateMath.parse(raw.from, false, timezone)!,
-      to: dateMath.parse(raw.to, true, timezone)!,
+      from: dateMath.parse(raw.from, false, timezone, this.dashboard?.fiscalYearStartMonth)!,
+      to: dateMath.parse(raw.to, true, timezone, this.dashboard?.fiscalYearStartMonth)!,
       raw: raw,
     };
   }

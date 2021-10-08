@@ -5,20 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-
-	gokit_log "github.com/go-kit/kit/log"
-	"github.com/prometheus/alertmanager/notify"
-	"github.com/prometheus/alertmanager/template"
-	"github.com/prometheus/alertmanager/types"
-	"github.com/prometheus/common/model"
+	"sort"
 
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	old_notifiers "github.com/grafana/grafana/pkg/services/alerting/notifiers"
-	"github.com/grafana/grafana/pkg/services/ngalert/logging"
+	"github.com/grafana/grafana/pkg/setting"
+	"github.com/prometheus/alertmanager/notify"
+	"github.com/prometheus/alertmanager/template"
+	"github.com/prometheus/alertmanager/types"
+	"github.com/prometheus/common/model"
 )
 
 const (
@@ -45,13 +43,13 @@ type OpsgenieNotifier struct {
 }
 
 // NewOpsgenieNotifier is the constructor for the Opsgenie notifier
-func NewOpsgenieNotifier(model *NotificationChannelConfig, t *template.Template) (*OpsgenieNotifier, error) {
+func NewOpsgenieNotifier(model *NotificationChannelConfig, t *template.Template, fn GetDecryptedValueFn) (*OpsgenieNotifier, error) {
 	autoClose := model.Settings.Get("autoClose").MustBool(true)
 	overridePriority := model.Settings.Get("overridePriority").MustBool(true)
-	apiKey := model.DecryptedValue("apiKey", model.Settings.Get("apiKey").MustString())
+	apiKey := fn(context.Background(), model.SecureSettings, "apiKey", model.Settings.Get("apiKey").MustString(), setting.SecretKey)
 	apiURL := model.Settings.Get("apiUrl").MustString()
 	if apiKey == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find api key property in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find api key property in settings"}
 	}
 	if apiURL == "" {
 		apiURL = OpsgenieAlertURL
@@ -59,8 +57,8 @@ func NewOpsgenieNotifier(model *NotificationChannelConfig, t *template.Template)
 
 	sendTagsAs := model.Settings.Get("sendTagsAs").MustString(OpsgenieSendTags)
 	if sendTagsAs != OpsgenieSendTags && sendTagsAs != OpsgenieSendDetails && sendTagsAs != OpsgenieSendBoth {
-		return nil, alerting.ValidationError{
-			Reason: fmt.Sprintf("Invalid value for sendTagsAs: %q", sendTagsAs),
+		return nil, receiverInitError{Cfg: *model,
+			Reason: fmt.Sprintf("invalid value for sendTagsAs: %q", sendTagsAs),
 		}
 	}
 
@@ -149,14 +147,10 @@ func (on *OpsgenieNotifier) buildOpsgenieMessage(ctx context.Context, alerts mod
 		return nil, "", nil
 	}
 
-	ruleURL, err := joinUrlPath(on.tmpl.ExternalURL.String(), "/alerting/list")
-	if err != nil {
-		return nil, "", err
-	}
+	ruleURL := joinUrlPath(on.tmpl.ExternalURL.String(), "/alerting/list", on.log)
 
-	data := notify.GetTemplateData(ctx, on.tmpl, as, gokit_log.NewLogfmtLogger(logging.NewWrapper(on.log)))
 	var tmplErr error
-	tmpl := notify.TmplText(on.tmpl, data, &tmplErr)
+	tmpl, data := TmplText(ctx, on.tmpl, as, on.log, &tmplErr)
 
 	title := tmpl(`{{ template "default.title" . }}`)
 	description := fmt.Sprintf(
@@ -169,9 +163,9 @@ func (on *OpsgenieNotifier) buildOpsgenieMessage(ctx context.Context, alerts mod
 	var priority string
 
 	// In the new alerting system we've moved away from the grafana-tags. Instead, annotations on the rule itself should be used.
-	annotations := make(map[string]string, len(data.CommonAnnotations))
-	for k, v := range data.CommonAnnotations {
-		annotations[k] = tmpl(v)
+	lbls := make(map[string]string, len(data.CommonLabels))
+	for k, v := range data.CommonLabels {
+		lbls[k] = tmpl(v)
 
 		if k == "og_priority" {
 			if ValidPriorities[v] {
@@ -187,17 +181,18 @@ func (on *OpsgenieNotifier) buildOpsgenieMessage(ctx context.Context, alerts mod
 	details.Set("url", ruleURL)
 
 	if on.sendDetails() {
-		for k, v := range annotations {
+		for k, v := range lbls {
 			details.Set(k, v)
 		}
 	}
 
-	tags := make([]string, 0, len(annotations))
+	tags := make([]string, 0, len(lbls))
 	if on.sendTags() {
-		for k, v := range annotations {
+		for k, v := range lbls {
 			tags = append(tags, fmt.Sprintf("%s:%s", k, v))
 		}
 	}
+	sort.Strings(tags)
 
 	if priority != "" && on.OverridePriority {
 		bodyJSON.Set("priority", priority)
@@ -205,13 +200,13 @@ func (on *OpsgenieNotifier) buildOpsgenieMessage(ctx context.Context, alerts mod
 
 	bodyJSON.Set("tags", tags)
 	bodyJSON.Set("details", details)
-	apiURL = on.APIUrl
+	apiURL = tmpl(on.APIUrl)
 
 	if tmplErr != nil {
-		return nil, "", fmt.Errorf("failed to template Opsgenie message: %w", tmplErr)
+		on.log.Debug("failed to template Opsgenie message", "err", tmplErr.Error())
 	}
 
-	return bodyJSON, apiURL, err
+	return bodyJSON, apiURL, nil
 }
 
 func (on *OpsgenieNotifier) SendResolved() bool {

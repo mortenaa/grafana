@@ -36,7 +36,8 @@ import {
   GrafanaLiveStreamScope,
 } from './scopes';
 import { registerLiveFeatures } from './features';
-import { perf } from './perf';
+import { contextSrv } from '../../core/services/context_srv';
+import { liveTimer } from '../dashboard/dashgrid/liveTimer';
 
 export const sessionId =
   (window as any)?.grafanaBootData?.user?.id +
@@ -51,20 +52,22 @@ export class CentrifugeSrv implements GrafanaLiveSrv {
   readonly connectionState: BehaviorSubject<boolean>;
   readonly connectionBlocker: Promise<void>;
   readonly scopes: Record<LiveChannelScope, GrafanaLiveScope>;
-  private orgId: number;
+  private readonly orgId: number;
 
   constructor() {
     const baseURL = window.location.origin.replace('http', 'ws');
     const liveUrl = `${baseURL}${config.appSubUrl}/api/live/ws`;
-    this.orgId = (window as any).grafanaBootData.user.orgId;
-    this.centrifuge = new Centrifuge(liveUrl, {
-      debug: true,
-    });
+
+    this.orgId = contextSrv.user.orgId;
+    this.centrifuge = new Centrifuge(liveUrl, {});
     this.centrifuge.setConnectData({
       sessionId,
       orgId: this.orgId,
     });
-    this.centrifuge.connect(); // do connection
+    // orgRole is set when logged in *or* anonomus users can use grafana
+    if (config.liveEnabled && contextSrv.user.orgRole !== '') {
+      this.centrifuge.connect(); // do connection
+    }
     this.connectionState = new BehaviorSubject<boolean>(this.centrifuge.isConnected());
     this.connectionBlocker = new Promise<void>((resolve) => {
       if (this.centrifuge.isConnected()) {
@@ -216,7 +219,8 @@ export class CentrifugeSrv implements GrafanaLiveSrv {
       let data: StreamingDataFrame | undefined = undefined;
       let filtered: DataFrame | undefined = undefined;
       let state = LoadingState.Streaming;
-      let last = perf.last;
+      let last = liveTimer.lastUpdate;
+      let lastWidth = -1;
 
       const process = (msg: DataFrameJSON) => {
         if (!data) {
@@ -225,9 +229,11 @@ export class CentrifugeSrv implements GrafanaLiveSrv {
           data.push(msg);
         }
         state = LoadingState.Streaming;
+        const sameWidth = lastWidth === data.fields.length;
+        lastWidth = data.fields.length;
 
         // Filter out fields
-        if (!filtered || msg.schema) {
+        if (!filtered || msg.schema || !sameWidth) {
           filtered = data;
           if (options.filter) {
             const { fields } = options.filter;
@@ -240,11 +246,11 @@ export class CentrifugeSrv implements GrafanaLiveSrv {
           }
         }
 
-        const elapsed = perf.last - last;
-        if (elapsed > 1000 || perf.ok) {
+        const elapsed = liveTimer.lastUpdate - last;
+        if (elapsed > 1000 || liveTimer.ok) {
           filtered.length = data.length; // make sure they stay up-to-date
           subscriber.next({ state, data: [filtered], key });
-          last = perf.last;
+          last = liveTimer.lastUpdate;
         }
       };
 

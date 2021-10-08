@@ -4,7 +4,8 @@ import { Field, FieldColorModeId, getColorForTheme, GrafanaTheme } from '@grafan
 import { identity } from 'lodash';
 import { Config } from './layout';
 import { css } from '@emotion/css';
-import { Icon, LegendDisplayMode, useStyles, useTheme, VizLegend, VizLegendItem, VizLegendListItem } from '@grafana/ui';
+import { LegendDisplayMode } from '@grafana/schema';
+import { Icon, useStyles, useTheme, VizLegend, VizLegendItem, VizLegendListItem } from '@grafana/ui';
 
 function getStyles() {
   return {
@@ -38,7 +39,7 @@ export const Legend = function Legend(props: Props) {
     (item) => {
       onSort({
         field: item.data!.field,
-        ascending: item.data!.field === sort?.field ? !sort?.ascending : true,
+        ascending: item.data!.field === sort?.field ? !sort?.ascending : false,
       });
     },
     [sort, onSort]
@@ -55,7 +56,7 @@ export const Legend = function Legend(props: Props) {
           <>
             <VizLegendListItem item={item} className={styles.item} onLabelClick={sortable ? onClick : undefined} />
             {sortable &&
-              (sort?.field === item.data!.field ? <Icon name={sort!.ascending ? 'angle-up' : 'angle-down'} /> : '')}
+              (sort?.field === item.data!.field ? <Icon name={sort!.ascending ? 'arrow-up' : 'arrow-down'} /> : '')}
           </>
         );
       }}

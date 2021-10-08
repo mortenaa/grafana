@@ -1,9 +1,10 @@
 import React from 'react';
 import { useTheme2, stylesFactory } from '../../../themes';
 import { GrafanaTheme2 } from '@grafana/data';
-import { css, cx } from '@emotion/css';
+import { css } from '@emotion/css';
 import { getPropertiesForButtonSize } from '../commonStyles';
 import { getFocusStyles, getMouseFocusStyles } from '../../../themes/mixins';
+import { StringSelector } from '@grafana/e2e-selectors';
 
 export type RadioButtonSize = 'sm' | 'md';
 
@@ -16,6 +17,7 @@ export interface RadioButtonProps {
   id: string;
   onChange: () => void;
   fullWidth?: boolean;
+  'aria-label'?: StringSelector;
 }
 
 export const RadioButton: React.FC<RadioButtonProps> = ({
@@ -28,6 +30,7 @@ export const RadioButton: React.FC<RadioButtonProps> = ({
   name = undefined,
   description,
   fullWidth,
+  'aria-label': ariaLabel,
 }) => {
   const theme = useTheme2();
   const styles = getRadioButtonStyles(theme, size, fullWidth);
@@ -36,14 +39,15 @@ export const RadioButton: React.FC<RadioButtonProps> = ({
     <>
       <input
         type="radio"
-        className={cx(styles.radio)}
+        className={styles.radio}
         onChange={onChange}
         disabled={disabled}
         id={id}
         checked={active}
         name={name}
+        aria-label={ariaLabel}
       />
-      <label className={cx(styles.radioLabel)} htmlFor={id} title={description}>
+      <label className={styles.radioLabel} htmlFor={id} title={description}>
         {children}
       </label>
     </>
@@ -83,7 +87,6 @@ const getRadioButtonStyles = stylesFactory((theme: GrafanaTheme2, size: RadioBut
       }
 
       &:disabled + label {
-        cursor: default;
         color: ${theme.colors.text.disabled};
         cursor: not-allowed;
       }
@@ -104,6 +107,7 @@ const getRadioButtonStyles = stylesFactory((theme: GrafanaTheme2, size: RadioBut
       flex: ${fullWidth ? `1 0 0` : 'none'};
       text-align: center;
       user-select: none;
+      white-space: nowrap;
 
       &:hover {
         color: ${textColorHover};

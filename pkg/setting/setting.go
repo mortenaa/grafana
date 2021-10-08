@@ -5,6 +5,7 @@ package setting
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -17,13 +18,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/common/model"
-	ini "gopkg.in/ini.v1"
-
 	"github.com/grafana/grafana-aws-sdk/pkg/awsds"
-	"github.com/grafana/grafana/pkg/components/gtime"
+	"github.com/grafana/grafana-plugin-sdk-go/backend/gtime"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/util"
+
+	"github.com/gobwas/glob"
+	"github.com/prometheus/common/model"
+	"gopkg.in/ini.v1"
 )
 
 type Scheme string
@@ -41,6 +43,7 @@ const (
 	Dev              = "development"
 	Prod             = "production"
 	Test             = "test"
+	ApplicationName  = "Grafana"
 )
 
 // This constant corresponds to the default value for ldap_sync_ttl in .ini files
@@ -61,12 +64,11 @@ var (
 	InstanceName     string
 
 	// build
-	BuildVersion    string
-	BuildCommit     string
-	BuildBranch     string
-	BuildStamp      int64
-	IsEnterprise    bool
-	ApplicationName string
+	BuildVersion string
+	BuildCommit  string
+	BuildBranch  string
+	BuildStamp   int64
+	IsEnterprise bool
 
 	// packaging
 	Packaging = "unknown"
@@ -76,21 +78,11 @@ var (
 	CustomInitPath = "conf/custom.ini"
 
 	// HTTP server options
-	DataProxyLogging               bool
-	DataProxyTimeout               int
-	DataProxyDialTimeout           int
-	DataProxyTLSHandshakeTimeout   int
-	DataProxyExpectContinueTimeout int
-	DataProxyMaxIdleConns          int
-	DataProxyMaxIdleConnsPerHost   int
-	DataProxyKeepAlive             int
-	DataProxyIdleConnTimeout       int
-	StaticRootPath                 string
+	StaticRootPath string
 
 	// Security settings.
 	SecretKey              string
 	DisableGravatar        bool
-	EmailCodeValidMinutes  int
 	DataProxyWhiteList     map[string]bool
 	CookieSecure           bool
 	CookieSameSiteDisabled bool
@@ -145,8 +137,10 @@ var (
 	appliedEnvOverrides          []string
 
 	// analytics
-	GoogleAnalyticsId  string
-	GoogleTagManagerId string
+	GoogleAnalyticsId       string
+	GoogleTagManagerId      string
+	RudderstackDataPlaneUrl string
+	RudderstackWriteKey     string
 
 	// LDAP
 	LDAPEnabled           bool
@@ -208,6 +202,9 @@ type Cfg struct {
 	EnableGzip       bool
 	EnforceDomain    bool
 
+	// Security settings
+	EmailCodeValidMinutes int
+
 	// build
 	BuildVersion string
 	BuildCommit  string
@@ -219,6 +216,7 @@ type Cfg struct {
 	Packaging string
 
 	// Paths
+	HomePath           string
 	ProvisioningPath   string
 	DataPath           string
 	LogsPath           string
@@ -253,15 +251,16 @@ type Cfg struct {
 	// CSPTemplate contains the Content Security Policy template.
 	CSPTemplate string
 
-	TempDataLifetime         time.Duration
-	PluginsEnableAlpha       bool
-	PluginsAppsSkipVerifyTLS bool
-	PluginSettings           PluginSettings
-	PluginsAllowUnsigned     []string
-	PluginCatalogURL         string
-	PluginAdminEnabled       bool
-	DisableSanitizeHtml      bool
-	EnterpriseLicensePath    string
+	TempDataLifetime                 time.Duration
+	PluginsEnableAlpha               bool
+	PluginsAppsSkipVerifyTLS         bool
+	PluginSettings                   PluginSettings
+	PluginsAllowUnsigned             []string
+	PluginCatalogURL                 string
+	PluginAdminEnabled               bool
+	PluginAdminExternalManageEnabled bool
+	DisableSanitizeHtml              bool
+	EnterpriseLicensePath            string
 
 	// Metrics
 	MetricsEndpointEnabled           bool
@@ -316,7 +315,18 @@ type Cfg struct {
 	JWTAuthJWKSetFile    string
 
 	// Dataproxy
-	SendUserHeader bool
+	SendUserHeader                 bool
+	DataProxyLogging               bool
+	DataProxyTimeout               int
+	DataProxyDialTimeout           int
+	DataProxyTLSHandshakeTimeout   int
+	DataProxyExpectContinueTimeout int
+	DataProxyMaxConnsPerHost       int
+	DataProxyMaxIdleConns          int
+	DataProxyKeepAlive             int
+	DataProxyIdleConnTimeout       int
+	ResponseLimit                  int64
+	DataProxyRowLimit              int64
 
 	// DistributedCache
 	RemoteCacheOptions *RemoteCacheOptions
@@ -358,9 +368,11 @@ type Cfg struct {
 	Env string
 
 	// Analytics
-	CheckForUpdates      bool
-	ReportingDistributor string
-	ReportingEnabled     bool
+	CheckForUpdates                     bool
+	ReportingDistributor                string
+	ReportingEnabled                    bool
+	ApplicationInsightsConnectionString string
+	ApplicationInsightsEndpointUrl      string
 
 	// LDAP
 	LDAPEnabled     bool
@@ -379,16 +391,40 @@ type Cfg struct {
 	ExpressionsEnabled bool
 
 	ImageUploadProvider string
+
+	// LiveMaxConnections is a maximum number of WebSocket connections to
+	// Grafana Live ws endpoint (per Grafana server instance). 0 disables
+	// Live, -1 means unlimited connections.
+	LiveMaxConnections int
+	// LiveHAEngine is a type of engine to use to achieve HA with Grafana Live.
+	// Zero value means in-memory single node setup.
+	LiveHAEngine string
+	// LiveHAEngineAddress is a connection address for Live HA engine.
+	LiveHAEngineAddress string
+	// LiveAllowedOrigins is a set of origins accepted by Live. If not provided
+	// then Live uses AppURL as the only allowed origin.
+	LiveAllowedOrigins []string
+
+	// Grafana.com URL
+	GrafanaComURL string
+
+	// Alerting
+
+	// AlertingBaseInterval controls the alerting base interval in seconds.
+	// Only for internal use and not user configuration.
+	AlertingBaseInterval time.Duration
+
+	// Geomap base layer config
+	GeomapDefaultBaseLayerConfig map[string]interface{}
+	GeomapEnableCustomBaseLayers bool
+
+	// Unified Alerting
+	UnifiedAlerting UnifiedAlertingSettings
 }
 
 // IsLiveConfigEnabled returns true if live should be able to save configs to SQL tables
 func (cfg Cfg) IsLiveConfigEnabled() bool {
 	return cfg.FeatureToggles["live-config"]
-}
-
-// IsNgAlertEnabled returns whether the standalone alerts feature is enabled.
-func (cfg Cfg) IsNgAlertEnabled() bool {
-	return cfg.FeatureToggles["ngalert"]
 }
 
 // IsTrimDefaultsEnabled returns whether the standalone trim dashboard default feature is enabled.
@@ -406,6 +442,10 @@ func (cfg Cfg) IsDatabaseMetricsEnabled() bool {
 // some graceperiod to update all the monitoring tools.
 func (cfg Cfg) IsHTTPRequestHistogramDisabled() bool {
 	return cfg.FeatureToggles["disable_http_request_histogram"]
+}
+
+func (cfg Cfg) IsNewNavigationEnabled() bool {
+	return cfg.FeatureToggles["newNavigation"]
 }
 
 type CommandLineArgs struct {
@@ -445,6 +485,7 @@ func RedactedValue(key, value string) string {
 		"PRIVATE_KEY",
 		"SECRET_KEY",
 		"CERTIFICATE",
+		"ACCOUNT_KEY",
 	} {
 		if strings.Contains(uppercased, pattern) {
 			return RedactedPassword
@@ -606,9 +647,9 @@ func makeAbsolute(path string, root string) string {
 	return filepath.Join(root, path)
 }
 
-func loadSpecifiedConfigFile(configFile string, masterFile *ini.File) error {
+func (cfg *Cfg) loadSpecifiedConfigFile(configFile string, masterFile *ini.File) error {
 	if configFile == "" {
-		configFile = filepath.Join(HomePath, CustomInitPath)
+		configFile = filepath.Join(cfg.HomePath, CustomInitPath)
 		// return without error if custom file does not exist
 		if !pathExists(configFile) {
 			return nil
@@ -644,7 +685,7 @@ func loadSpecifiedConfigFile(configFile string, masterFile *ini.File) error {
 	return nil
 }
 
-func (cfg *Cfg) loadConfiguration(args *CommandLineArgs) (*ini.File, error) {
+func (cfg *Cfg) loadConfiguration(args CommandLineArgs) (*ini.File, error) {
 	// load config defaults
 	defaultConfigFile := path.Join(HomePath, "conf/defaults.ini")
 	configFiles = append(configFiles, defaultConfigFile)
@@ -671,7 +712,7 @@ func (cfg *Cfg) loadConfiguration(args *CommandLineArgs) (*ini.File, error) {
 	applyCommandLineDefaultProperties(commandLineProps, parsedFile)
 
 	// load specified config file
-	err = loadSpecifiedConfigFile(args.Config, parsedFile)
+	err = cfg.loadSpecifiedConfigFile(args.Config, parsedFile)
 	if err != nil {
 		err2 := cfg.initLogging(parsedFile)
 		if err2 != nil {
@@ -718,25 +759,29 @@ func pathExists(path string) bool {
 	return false
 }
 
-func setHomePath(args *CommandLineArgs) {
+func (cfg *Cfg) setHomePath(args CommandLineArgs) {
 	if args.HomePath != "" {
-		HomePath = args.HomePath
+		cfg.HomePath = args.HomePath
+		HomePath = cfg.HomePath
 		return
 	}
 
 	var err error
-	HomePath, err = filepath.Abs(".")
+	cfg.HomePath, err = filepath.Abs(".")
 	if err != nil {
 		panic(err)
 	}
+
+	HomePath = cfg.HomePath
 	// check if homepath is correct
-	if pathExists(filepath.Join(HomePath, "conf/defaults.ini")) {
+	if pathExists(filepath.Join(cfg.HomePath, "conf/defaults.ini")) {
 		return
 	}
 
 	// try down one path
-	if pathExists(filepath.Join(HomePath, "../conf/defaults.ini")) {
-		HomePath = filepath.Join(HomePath, "../")
+	if pathExists(filepath.Join(cfg.HomePath, "../conf/defaults.ini")) {
+		cfg.HomePath = filepath.Join(cfg.HomePath, "../")
+		HomePath = cfg.HomePath
 	}
 }
 
@@ -749,19 +794,13 @@ func NewCfg() *Cfg {
 	}
 }
 
-var theCfg *Cfg
-
-// GetCfg gets the Cfg singleton.
-// XXX: This is only required for integration tests so that the configuration can be reset for each test,
-// as due to how the current DI framework functions, we can't create a new Cfg object every time (the services
-// constituting the DI graph, and referring to a Cfg instance, get created only once).
-func GetCfg() *Cfg {
-	if theCfg != nil {
-		return theCfg
+func NewCfgFromArgs(args CommandLineArgs) (*Cfg, error) {
+	cfg := NewCfg()
+	if err := cfg.Load(args); err != nil {
+		return nil, err
 	}
 
-	theCfg = NewCfg()
-	return theCfg
+	return cfg, nil
 }
 
 func (cfg *Cfg) validateStaticRootPath() error {
@@ -776,8 +815,8 @@ func (cfg *Cfg) validateStaticRootPath() error {
 	return nil
 }
 
-func (cfg *Cfg) Load(args *CommandLineArgs) error {
-	setHomePath(args)
+func (cfg *Cfg) Load(args CommandLineArgs) error {
+	cfg.setHomePath(args)
 
 	// Fix for missing IANA db on Windows
 	_, zoneInfoSet := os.LookupEnv(zoneInfo)
@@ -806,8 +845,6 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 
 	cfg.ErrTemplateName = "error"
 
-	ApplicationName = "Grafana"
-
 	Env = valueAsString(iniFile.Section(""), "app_mode", "development")
 	cfg.Env = Env
 	InstanceName = valueAsString(iniFile.Section(""), "instance_name", "unknown_instance_name")
@@ -821,18 +858,9 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 		return err
 	}
 
-	// read data proxy settings
-	dataproxy := iniFile.Section("dataproxy")
-	DataProxyLogging = dataproxy.Key("logging").MustBool(false)
-	DataProxyTimeout = dataproxy.Key("timeout").MustInt(10)
-	DataProxyDialTimeout = dataproxy.Key("dialTimeout").MustInt(30)
-	DataProxyKeepAlive = dataproxy.Key("keep_alive_seconds").MustInt(30)
-	DataProxyTLSHandshakeTimeout = dataproxy.Key("tls_handshake_timeout_seconds").MustInt(10)
-	DataProxyExpectContinueTimeout = dataproxy.Key("expect_continue_timeout_seconds").MustInt(1)
-	DataProxyMaxIdleConns = dataproxy.Key("max_idle_connections").MustInt(100)
-	DataProxyMaxIdleConnsPerHost = dataproxy.Key("max_idle_connections_per_host").MustInt(2)
-	DataProxyIdleConnTimeout = dataproxy.Key("idle_conn_timeout_seconds").MustInt(90)
-	cfg.SendUserHeader = dataproxy.Key("send_user_header").MustBool(false)
+	if err := readDataProxySettings(iniFile, cfg); err != nil {
+		return err
+	}
 
 	if err := readSecuritySettings(iniFile, cfg); err != nil {
 		return err
@@ -855,7 +883,7 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	if err := readAuthSettings(iniFile, cfg); err != nil {
 		return err
 	}
-	if err := readRenderingSettings(iniFile, cfg); err != nil {
+	if err := cfg.readRenderingSettings(iniFile); err != nil {
 		return err
 	}
 
@@ -869,13 +897,20 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	cfg.CheckForUpdates = analytics.Key("check_for_updates").MustBool(true)
 	GoogleAnalyticsId = analytics.Key("google_analytics_ua_id").String()
 	GoogleTagManagerId = analytics.Key("google_tag_manager_id").String()
+	RudderstackWriteKey = analytics.Key("rudderstack_write_key").String()
+	RudderstackDataPlaneUrl = analytics.Key("rudderstack_data_plane_url").String()
 	cfg.ReportingEnabled = analytics.Key("reporting_enabled").MustBool(true)
 	cfg.ReportingDistributor = analytics.Key("reporting_distributor").MustString("grafana-labs")
 	if len(cfg.ReportingDistributor) >= 100 {
 		cfg.ReportingDistributor = cfg.ReportingDistributor[:100]
 	}
+	cfg.ApplicationInsightsConnectionString = analytics.Key("application_insights_connection_string").String()
+	cfg.ApplicationInsightsEndpointUrl = analytics.Key("application_insights_endpoint_url").String()
 
 	if err := readAlertingSettings(iniFile); err != nil {
+		return err
+	}
+	if err := cfg.ReadUnifiedAlertingSettings(iniFile); err != nil {
 		return err
 	}
 
@@ -895,14 +930,15 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 		cfg.PluginsAllowUnsigned = append(cfg.PluginsAllowUnsigned, plug)
 	}
 	cfg.PluginCatalogURL = pluginsSection.Key("plugin_catalog_url").MustString("https://grafana.com/grafana/plugins/")
-	cfg.PluginAdminEnabled = pluginsSection.Key("plugin_admin_enabled").MustBool(false)
+	cfg.PluginAdminEnabled = pluginsSection.Key("plugin_admin_enabled").MustBool(true)
+	cfg.PluginAdminExternalManageEnabled = pluginsSection.Key("plugin_admin_external_manage_enabled").MustBool(false)
 
-	// Read and populate feature toggles list
-	featureTogglesSection := iniFile.Section("feature_toggles")
-	cfg.FeatureToggles = make(map[string]bool)
-	featuresTogglesStr := valueAsString(featureTogglesSection, "enable", "")
-	for _, feature := range util.SplitString(featuresTogglesStr) {
-		cfg.FeatureToggles[feature] = true
+	if err := cfg.readFeatureToggles(iniFile); err != nil {
+		return err
+	}
+
+	if err := cfg.ReadUnifiedAlertingSettings(iniFile); err != nil {
+		return err
 	}
 
 	// check old location for this option
@@ -933,6 +969,7 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 	if GrafanaComUrl == "" {
 		GrafanaComUrl = valueAsString(iniFile.Section("grafana_com"), "url", "https://grafana.com")
 	}
+	cfg.GrafanaComURL = GrafanaComUrl
 
 	imageUploadingSection := iniFile.Section("external_image_storage")
 	cfg.ImageUploadProvider = valueAsString(imageUploadingSection, "provider", "")
@@ -950,8 +987,27 @@ func (cfg *Cfg) Load(args *CommandLineArgs) error {
 		ConnStr: connStr,
 	}
 
+	geomapSection := iniFile.Section("geomap")
+	basemapJSON := valueAsString(geomapSection, "default_baselayer_config", "")
+	if basemapJSON != "" {
+		layer := make(map[string]interface{})
+		err = json.Unmarshal([]byte(basemapJSON), &layer)
+		if err != nil {
+			cfg.Logger.Error("Error reading json from default_baselayer_config", "error", err)
+		} else {
+			cfg.GeomapDefaultBaseLayerConfig = layer
+		}
+	}
+	cfg.GeomapEnableCustomBaseLayers = geomapSection.Key("enable_custom_baselayers").MustBool(true)
+
 	cfg.readDateFormats()
 	cfg.readSentryConfig()
+
+	if err := cfg.readLiveSettings(iniFile); err != nil {
+		return err
+	}
+
+	cfg.LogConfigSources()
 
 	return nil
 }
@@ -1286,7 +1342,7 @@ func readUserSettings(iniFile *ini.File, cfg *Cfg) error {
 	return nil
 }
 
-func readRenderingSettings(iniFile *ini.File, cfg *Cfg) error {
+func (cfg *Cfg) readRenderingSettings(iniFile *ini.File) error {
 	renderSec := iniFile.Section("rendering")
 	cfg.RendererUrl = valueAsString(renderSec, "server_url", "")
 	cfg.RendererCallbackUrl = valueAsString(renderSec, "callback_url", "")
@@ -1308,6 +1364,17 @@ func readRenderingSettings(iniFile *ini.File, cfg *Cfg) error {
 	cfg.ImagesDir = filepath.Join(cfg.DataPath, "png")
 	cfg.CSVsDir = filepath.Join(cfg.DataPath, "csv")
 
+	return nil
+}
+
+func (cfg *Cfg) readFeatureToggles(iniFile *ini.File) error {
+	// Read and populate feature toggles list
+	featureTogglesSection := iniFile.Section("feature_toggles")
+	cfg.FeatureToggles = make(map[string]bool)
+	featuresTogglesStr := valueAsString(featureTogglesSection, "enable", "")
+	for _, feature := range util.SplitString(featuresTogglesStr) {
+		cfg.FeatureToggles[feature] = true
+	}
 	return nil
 }
 
@@ -1408,10 +1475,6 @@ func (cfg *Cfg) GetContentDeliveryURL(prefix string) string {
 		url := *cfg.CDNRootURL
 		preReleaseFolder := ""
 
-		if strings.Contains(cfg.BuildVersion, "pre") || strings.Contains(cfg.BuildVersion, "alpha") {
-			preReleaseFolder = "pre-releases"
-		}
-
 		url.Path = path.Join(url.Path, prefix, preReleaseFolder, cfg.BuildVersion)
 		return url.String() + "/"
 	}
@@ -1422,4 +1485,48 @@ func (cfg *Cfg) GetContentDeliveryURL(prefix string) string {
 func (cfg *Cfg) readDataSourcesSettings() {
 	datasources := cfg.Raw.Section("datasources")
 	cfg.DataSourceLimit = datasources.Key("datasource_limit").MustInt(5000)
+}
+
+func GetAllowedOriginGlobs(originPatterns []string) ([]glob.Glob, error) {
+	var originGlobs []glob.Glob
+	allowedOrigins := originPatterns
+	for _, originPattern := range allowedOrigins {
+		g, err := glob.Compile(originPattern)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing origin pattern: %v", err)
+		}
+		originGlobs = append(originGlobs, g)
+	}
+	return originGlobs, nil
+}
+
+func (cfg *Cfg) readLiveSettings(iniFile *ini.File) error {
+	section := iniFile.Section("live")
+	cfg.LiveMaxConnections = section.Key("max_connections").MustInt(100)
+	if cfg.LiveMaxConnections < -1 {
+		return fmt.Errorf("unexpected value %d for [live] max_connections", cfg.LiveMaxConnections)
+	}
+	cfg.LiveHAEngine = section.Key("ha_engine").MustString("")
+	switch cfg.LiveHAEngine {
+	case "", "redis":
+	default:
+		return fmt.Errorf("unsupported live HA engine type: %s", cfg.LiveHAEngine)
+	}
+	cfg.LiveHAEngineAddress = section.Key("ha_engine_address").MustString("127.0.0.1:6379")
+
+	var originPatterns []string
+	allowedOrigins := section.Key("allowed_origins").MustString("")
+	for _, originPattern := range strings.Split(allowedOrigins, ",") {
+		originPattern = strings.TrimSpace(originPattern)
+		if originPattern == "" {
+			continue
+		}
+		originPatterns = append(originPatterns, originPattern)
+	}
+	_, err := GetAllowedOriginGlobs(originPatterns)
+	if err != nil {
+		return err
+	}
+	cfg.LiveAllowedOrigins = originPatterns
+	return nil
 }

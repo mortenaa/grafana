@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"testing"
 
+	"github.com/grafana/grafana/pkg/services/encryption/ossencryption"
+
 	"github.com/prometheus/alertmanager/notify"
 	"github.com/prometheus/alertmanager/types"
 	"github.com/prometheus/common/model"
@@ -13,7 +15,6 @@ import (
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 )
 
 func TestThreemaNotifier(t *testing.T) {
@@ -28,7 +29,7 @@ func TestThreemaNotifier(t *testing.T) {
 		settings     string
 		alerts       []*types.Alert
 		expMsg       string
-		expInitError error
+		expInitError string
 		expMsgError  error
 	}{
 		{
@@ -42,13 +43,12 @@ func TestThreemaNotifier(t *testing.T) {
 				{
 					Alert: model.Alert{
 						Labels:      model.LabelSet{"alertname": "alert1", "lbl1": "val1"},
-						Annotations: model.LabelSet{"ann1": "annv1"},
+						Annotations: model.LabelSet{"ann1": "annv1", "__dashboardUid__": "abcd", "__panelId__": "efgh"},
 					},
 				},
 			},
-			expMsg:       "from=%2A1234567&secret=supersecret&text=%E2%9A%A0%EF%B8%8F+%5BFIRING%3A1%5D++%28val1%29%0A%0A%2AMessage%3A%2A%0A%0A%2A%2AFiring%2A%2A%0ALabels%3A%0A+-+alertname+%3D+alert1%0A+-+lbl1+%3D+val1%0AAnnotations%3A%0A+-+ann1+%3D+annv1%0ASource%3A+%0A%0A%0A%0A%0A%0A%2AURL%3A%2A+http%3A%2Flocalhost%2Falerting%2Flist%0A&to=87654321",
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsg:      "from=%2A1234567&secret=supersecret&text=%E2%9A%A0%EF%B8%8F+%5BFIRING%3A1%5D++%28val1%29%0A%0A%2AMessage%3A%2A%0A%2A%2AFiring%2A%2A%0A%0ALabels%3A%0A+-+alertname+%3D+alert1%0A+-+lbl1+%3D+val1%0AAnnotations%3A%0A+-+ann1+%3D+annv1%0ASilence%3A+http%3A%2F%2Flocalhost%2Falerting%2Fsilence%2Fnew%3Falertmanager%3Dgrafana%26matchers%3Dalertname%253Dalert1%252Clbl1%253Dval1%0ADashboard%3A+http%3A%2F%2Flocalhost%2Fd%2Fabcd%0APanel%3A+http%3A%2F%2Flocalhost%2Fd%2Fabcd%3FviewPanel%3Defgh%0A%0A%2AURL%3A%2A+http%3A%2Flocalhost%2Falerting%2Flist%0A&to=87654321",
+			expMsgError: nil,
 		}, {
 			name: "Multiple alerts",
 			settings: `{
@@ -69,9 +69,8 @@ func TestThreemaNotifier(t *testing.T) {
 					},
 				},
 			},
-			expMsg:       "from=%2A1234567&secret=supersecret&text=%E2%9A%A0%EF%B8%8F+%5BFIRING%3A2%5D++%0A%0A%2AMessage%3A%2A%0A%0A%2A%2AFiring%2A%2A%0ALabels%3A%0A+-+alertname+%3D+alert1%0A+-+lbl1+%3D+val1%0AAnnotations%3A%0A+-+ann1+%3D+annv1%0ASource%3A+%0ALabels%3A%0A+-+alertname+%3D+alert1%0A+-+lbl1+%3D+val2%0AAnnotations%3A%0A+-+ann1+%3D+annv2%0ASource%3A+%0A%0A%0A%0A%0A%0A%2AURL%3A%2A+http%3A%2Flocalhost%2Falerting%2Flist%0A&to=87654321",
-			expInitError: nil,
-			expMsgError:  nil,
+			expMsg:      "from=%2A1234567&secret=supersecret&text=%E2%9A%A0%EF%B8%8F+%5BFIRING%3A2%5D++%0A%0A%2AMessage%3A%2A%0A%2A%2AFiring%2A%2A%0A%0ALabels%3A%0A+-+alertname+%3D+alert1%0A+-+lbl1+%3D+val1%0AAnnotations%3A%0A+-+ann1+%3D+annv1%0ASilence%3A+http%3A%2F%2Flocalhost%2Falerting%2Fsilence%2Fnew%3Falertmanager%3Dgrafana%26matchers%3Dalertname%253Dalert1%252Clbl1%253Dval1%0A%0ALabels%3A%0A+-+alertname+%3D+alert1%0A+-+lbl1+%3D+val2%0AAnnotations%3A%0A+-+ann1+%3D+annv2%0ASilence%3A+http%3A%2F%2Flocalhost%2Falerting%2Fsilence%2Fnew%3Falertmanager%3Dgrafana%26matchers%3Dalertname%253Dalert1%252Clbl1%253Dval2%0A%0A%2AURL%3A%2A+http%3A%2Flocalhost%2Falerting%2Flist%0A&to=87654321",
+			expMsgError: nil,
 		}, {
 			name: "Invalid gateway id",
 			settings: `{
@@ -79,7 +78,7 @@ func TestThreemaNotifier(t *testing.T) {
 				"recipient_id": "87654321",
 				"api_secret": "supersecret"
 			}`,
-			expInitError: alerting.ValidationError{Reason: "Invalid Threema Gateway ID: Must start with a *"},
+			expInitError: `failed to validate receiver "threema_testing" of type "threema": invalid Threema Gateway ID: Must start with a *`,
 		}, {
 			name: "Invalid receipent id",
 			settings: `{
@@ -87,14 +86,14 @@ func TestThreemaNotifier(t *testing.T) {
 				"recipient_id": "8765432",
 				"api_secret": "supersecret"
 			}`,
-			expInitError: alerting.ValidationError{Reason: "Invalid Threema Recipient ID: Must be 8 characters long"},
+			expInitError: `failed to validate receiver "threema_testing" of type "threema": invalid Threema Recipient ID: Must be 8 characters long`,
 		}, {
 			name: "No API secret",
 			settings: `{
 				"gateway_id": "*1234567",
 				"recipient_id": "87654321"
 			}`,
-			expInitError: alerting.ValidationError{Reason: "Could not find Threema API secret in settings"},
+			expInitError: `failed to validate receiver "threema_testing" of type "threema": could not find Threema API secret in settings`,
 		},
 	}
 
@@ -109,10 +108,11 @@ func TestThreemaNotifier(t *testing.T) {
 				Settings: settingsJSON,
 			}
 
-			pn, err := NewThreemaNotifier(m, tmpl)
-			if c.expInitError != nil {
+			decryptFn := ossencryption.ProvideService().GetDecryptedValue
+			pn, err := NewThreemaNotifier(m, tmpl, decryptFn)
+			if c.expInitError != "" {
 				require.Error(t, err)
-				require.Equal(t, c.expInitError.Error(), err.Error())
+				require.Equal(t, c.expInitError, err.Error())
 				return
 			}
 			require.NoError(t, err)

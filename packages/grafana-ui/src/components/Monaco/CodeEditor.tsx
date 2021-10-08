@@ -86,26 +86,30 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
     }
   };
 
+  onSave = () => {
+    const { onSave } = this.props;
+    if (onSave) {
+      onSave(this.getEditorValue());
+    }
+  };
+
   handleBeforeMount = (monaco: Monaco) => {
     this.monaco = monaco;
-    const { language, theme, getSuggestions } = this.props;
+    const { language, theme, getSuggestions, onBeforeEditorMount } = this.props;
     defineThemes(monaco, theme);
 
     if (getSuggestions) {
       this.completionCancel = registerSuggestions(monaco, language, getSuggestions);
     }
+
+    onBeforeEditorMount?.(monaco);
   };
 
   handleOnMount = (editor: MonacoEditorType, monaco: Monaco) => {
-    const { onSave, onEditorDidMount } = this.props;
+    const { onEditorDidMount } = this.props;
     this.getEditorValue = () => editor.getValue();
 
-    if (onSave) {
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_S, () => {
-        onSave(this.getEditorValue());
-      });
-    }
-
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_S, this.onSave);
     const languagePromise = this.loadCustomLanguage();
 
     if (onEditorDidMount) {
@@ -125,7 +129,6 @@ class UnthemedCodeEditor extends React.PureComponent<Props> {
       tabSize: 2,
       codeLens: false,
       contextmenu: false,
-
       minimap: {
         enabled: longText && showMiniMap,
         renderCharacters: false,

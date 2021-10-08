@@ -62,33 +62,29 @@ class PluginPage extends PureComponent<Props, State> {
   }
 
   async componentDidMount() {
-    const { location, queryParams } = this.props;
-    const { appSubUrl } = config;
-
-    const plugin = await loadPlugin(this.props.match.params.pluginId);
-
-    if (!plugin) {
+    try {
+      const { location, queryParams } = this.props;
+      const { appSubUrl } = config;
+      const plugin = await loadPlugin(this.props.match.params.pluginId);
+      const { defaultPage, nav } = getPluginTabsNav(
+        plugin,
+        appSubUrl,
+        location.pathname,
+        queryParams,
+        contextSrv.hasRole('Admin')
+      );
+      this.setState({
+        loading: false,
+        plugin,
+        defaultPage,
+        nav,
+      });
+    } catch {
       this.setState({
         loading: false,
         nav: getNotFoundNav(),
       });
-      return; // 404
     }
-
-    const { defaultPage, nav } = getPluginTabsNav(
-      plugin,
-      appSubUrl,
-      location.pathname,
-      queryParams,
-      contextSrv.hasRole('Admin')
-    );
-
-    this.setState({
-      loading: false,
-      plugin,
-      defaultPage,
-      nav,
-    });
   }
 
   componentDidUpdate(prevProps: Props) {
@@ -311,7 +307,7 @@ class PluginPage extends PureComponent<Props, State> {
         <br />
         <p>
           Grafana Labs checks each plugin to verify that it has a valid digital signature. Plugin signature verification
-          is part of our security measures to ensure plugins are safe and trustworthy.
+          is part of our security measures to ensure plugins are safe and trustworthy.{' '}
           {!isSignatureValid &&
             'Grafana Labs can’t guarantee the integrity of this unsigned plugin. Ask the plugin author to request it to be signed.'}
         </p>

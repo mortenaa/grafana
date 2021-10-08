@@ -1,6 +1,7 @@
 import { cx } from '@emotion/css';
 import { Checkbox, Icon, IconButton, LoadingPlaceholder, useStyles2, useTheme2, FadeTransition } from '@grafana/ui';
 import React, { useCallback, useEffect, useState } from 'react';
+import { Space } from '../Space';
 import getStyles from './styles';
 import { ResourceRowType, ResourceRow, ResourceRowGroup } from './types';
 import { findRow } from './utils';
@@ -130,6 +131,12 @@ const EntryIcon: React.FC<EntryIconProps> = ({ isOpen, entry: { type } }) => {
     case ResourceRowType.Resource:
       return <Icon name="cube" />;
 
+    case ResourceRowType.VariableGroup:
+      return <Icon name="x" />;
+
+    case ResourceRowType.Variable:
+      return <Icon name="x" />;
+
     default:
       return null;
   }
@@ -157,7 +164,9 @@ const NestedEntry: React.FC<NestedEntryProps> = ({
   const theme = useTheme2();
   const styles = useStyles2(getStyles);
   const hasChildren = !!entry.children;
-  const isSelectable = entry.type === ResourceRowType.Resource;
+  // Subscriptions, resource groups, resources, and variables are all selectable, so
+  // the top-level variable group is the only thing that cannot be selected.
+  const isSelectable = entry.type !== ResourceRowType.VariableGroup;
 
   const handleToggleCollapse = useCallback(() => {
     onToggleCollapse(entry);
@@ -178,25 +187,29 @@ const NestedEntry: React.FC<NestedEntryProps> = ({
       {/* When groups are selectable, I *think* we will want to show a 2-wide space instead
             of the collapse button for leaf rows that have no children to get them to align */}
 
-      <span className={styles.entryContentItem}>
-        {hasChildren && (
-          <IconButton
-            className={styles.collapseButton}
-            name={isOpen ? 'angle-down' : 'angle-right'}
-            aria-label={isOpen ? 'Collapse' : 'Expand'}
-            onClick={handleToggleCollapse}
-            id={entry.id}
-          />
-        )}
+      {hasChildren ? (
+        <IconButton
+          className={styles.collapseButton}
+          name={isOpen ? 'angle-down' : 'angle-right'}
+          aria-label={isOpen ? 'Collapse' : 'Expand'}
+          onClick={handleToggleCollapse}
+          id={entry.id}
+        />
+      ) : (
+        <Space layout="inline" h={2} />
+      )}
 
-        {isSelectable && (
+      <Space layout="inline" h={2} />
+
+      {isSelectable && (
+        <>
           <Checkbox id={checkboxId} onChange={handleSelectedChanged} disabled={isDisabled} value={isSelected} />
-        )}
-      </span>
+          <Space layout="inline" h={2} />
+        </>
+      )}
 
-      <span className={styles.entryContentItem}>
-        <EntryIcon entry={entry} isOpen={isOpen} />
-      </span>
+      <EntryIcon entry={entry} isOpen={isOpen} />
+      <Space layout="inline" h={1} />
 
       <label htmlFor={checkboxId} className={cx(styles.entryContentItem, styles.truncated)}>
         {entry.name}

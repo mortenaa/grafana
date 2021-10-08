@@ -6,21 +6,20 @@ import { uniqBy } from 'lodash';
 import { RichHistoryQuery, ExploreId } from 'app/types/explore';
 
 // Utils
-import { stylesFactory, useTheme, Select } from '@grafana/ui';
+import { stylesFactory, useTheme, Select, MultiSelect, FilterInput } from '@grafana/ui';
 import { GrafanaTheme, SelectableValue } from '@grafana/data';
 import { filterAndSortQueries, createDatasourcesList, SortOrder } from 'app/core/utils/richHistory';
 
 // Components
 import RichHistoryCard from './RichHistoryCard';
 import { sortOrderOptions } from './RichHistory';
-import { FilterInput } from 'app/core/components/FilterInput/FilterInput';
 import { useDebounce } from 'react-use';
 
 export interface Props {
   queries: RichHistoryQuery[];
   sortOrder: SortOrder;
   activeDatasourceOnly: boolean;
-  datasourceFilters: SelectableValue[] | null;
+  datasourceFilters: SelectableValue[];
   exploreId: ExploreId;
   onChangeSortOrder: (sortOrder: SortOrder) => void;
   onSelectDatasourceFilters: (value: SelectableValue[]) => void;
@@ -105,7 +104,7 @@ export function RichHistoryStarredTab(props: Props) {
       filterAndSortQueries(
         starredQueries,
         sortOrder,
-        datasourceFilters?.map((d) => d.value) as string[] | null,
+        datasourceFilters.map((d) => d.value),
         debouncedSearchInput
       )
     );
@@ -117,8 +116,8 @@ export function RichHistoryStarredTab(props: Props) {
         <div className={styles.selectors}>
           {!activeDatasourceOnly && (
             <div aria-label="Filter datasources" className={styles.multiselect}>
-              <Select
-                isMulti={true}
+              <MultiSelect
+                menuShouldPortal
                 options={listOfDatasources}
                 value={datasourceFilters}
                 placeholder="Filter queries for specific data sources(s)"
@@ -137,6 +136,7 @@ export function RichHistoryStarredTab(props: Props) {
           </div>
           <div aria-label="Sort queries" className={styles.sort}>
             <Select
+              menuShouldPortal
               options={sortOrderOptions}
               value={sortOrderOptions.filter((order) => order.value === sortOrder)}
               placeholder="Sort queries by"

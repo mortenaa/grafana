@@ -6,15 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	gokit_log "github.com/go-kit/kit/log"
-	"github.com/prometheus/alertmanager/notify"
 	"github.com/prometheus/alertmanager/template"
 	"github.com/prometheus/alertmanager/types"
 
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/infra/log"
 	"github.com/grafana/grafana/pkg/models"
-	"github.com/grafana/grafana/pkg/services/alerting"
 	old_notifiers "github.com/grafana/grafana/pkg/services/alerting/notifiers"
 	"github.com/grafana/grafana/pkg/setting"
 )
@@ -31,7 +28,7 @@ type GoogleChatNotifier struct {
 func NewGoogleChatNotifier(model *NotificationChannelConfig, t *template.Template) (*GoogleChatNotifier, error) {
 	url := model.Settings.Get("url").MustString()
 	if url == "" {
-		return nil, alerting.ValidationError{Reason: "Could not find url property in settings"}
+		return nil, receiverInitError{Cfg: *model, Reason: "could not find url property in settings"}
 	}
 
 	return &GoogleChatNotifier{
@@ -52,9 +49,8 @@ func NewGoogleChatNotifier(model *NotificationChannelConfig, t *template.Templat
 func (gcn *GoogleChatNotifier) Notify(ctx context.Context, as ...*types.Alert) (bool, error) {
 	gcn.log.Debug("Executing Google Chat notification")
 
-	data := notify.GetTemplateData(ctx, gcn.tmpl, as, gokit_log.NewNopLogger())
 	var tmplErr error
-	tmpl := notify.TmplText(gcn.tmpl, data, &tmplErr)
+	tmpl, _ := TmplText(ctx, gcn.tmpl, as, gcn.log, &tmplErr)
 
 	widgets := []widget{}
 
@@ -68,10 +64,7 @@ func (gcn *GoogleChatNotifier) Notify(ctx context.Context, as ...*types.Alert) (
 		})
 	}
 
-	ruleURL, err := joinUrlPath(gcn.tmpl.ExternalURL.String(), "/alerting/list")
-	if err != nil {
-		return false, err
-	}
+	ruleURL := joinUrlPath(gcn.tmpl.ExternalURL.String(), "/alerting/list", gcn.log)
 	// Add a button widget (link to Grafana).
 	widgets = append(widgets, buttonWidget{
 		Buttons: []button{
@@ -113,8 +106,9 @@ func (gcn *GoogleChatNotifier) Notify(ctx context.Context, as ...*types.Alert) (
 		},
 	}
 
+	u := tmpl(gcn.URL)
 	if tmplErr != nil {
-		return false, fmt.Errorf("failed to template GoogleChat message: %w", tmplErr)
+		gcn.log.Debug("failed to template GoogleChat message", "err", tmplErr.Error())
 	}
 
 	body, err := json.Marshal(res)
@@ -123,7 +117,7 @@ func (gcn *GoogleChatNotifier) Notify(ctx context.Context, as ...*types.Alert) (
 	}
 
 	cmd := &models.SendWebhookSync{
-		Url:        gcn.URL,
+		Url:        u,
 		HttpMethod: "POST",
 		HttpHeader: map[string]string{
 			"Content-Type": "application/json; charset=UTF-8",

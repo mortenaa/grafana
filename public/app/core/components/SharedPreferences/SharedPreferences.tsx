@@ -90,7 +90,7 @@ export class SharedPreferences extends PureComponent<Props, State> {
 
   onSubmitForm = async () => {
     const { homeDashboardId, theme, timezone } = this.state;
-    this.service.update({ homeDashboardId, theme, timezone });
+    await this.service.update({ homeDashboardId, theme, timezone });
     window.location.reload();
   };
 
@@ -98,7 +98,7 @@ export class SharedPreferences extends PureComponent<Props, State> {
     this.setState({ theme: value });
   };
 
-  onTimeZoneChanged = (timezone: string) => {
+  onTimeZoneChanged = (timezone?: string) => {
     if (!timezone) {
       return;
     }
@@ -109,7 +109,7 @@ export class SharedPreferences extends PureComponent<Props, State> {
     this.setState({ homeDashboardId: dashboardId });
   };
 
-  getFullDashName = (dashboard: DashboardSearchHit) => {
+  getFullDashName = (dashboard: SelectableValue<DashboardSearchHit>) => {
     if (typeof dashboard.folderTitle === 'undefined' || dashboard.folderTitle === '') {
       return dashboard.title;
     }
@@ -135,9 +135,9 @@ export class SharedPreferences extends PureComponent<Props, State> {
 
               <Field
                 label={
-                  <Label>
+                  <Label htmlFor="home-dashboard-select">
                     <span className={styles.labelText}>Home Dashboard</span>
-                    <Tooltip content="Not finding dashboard you want? Star it first, then it should appear in this select box.">
+                    <Tooltip content="Not finding the dashboard you want? Star it first, then it should appear in this select box.">
                       <Icon name="info-circle" />
                     </Tooltip>
                   </Label>
@@ -145,12 +145,16 @@ export class SharedPreferences extends PureComponent<Props, State> {
                 aria-label="User preferences home dashboard drop down"
               >
                 <Select
+                  menuShouldPortal
                   value={dashboards.find((dashboard) => dashboard.id === homeDashboardId)}
                   getOptionValue={(i) => i.id}
                   getOptionLabel={this.getFullDashName}
-                  onChange={(dashboard: DashboardSearchHit) => this.onHomeDashboardChanged(dashboard.id)}
+                  onChange={(dashboard: SelectableValue<DashboardSearchHit>) =>
+                    this.onHomeDashboardChanged(dashboard.id)
+                  }
                   options={dashboards}
                   placeholder="Choose default dashboard"
+                  inputId="home-dashboard-select"
                 />
               </Field>
 
