@@ -6,7 +6,6 @@ import { default as AsyncCreatable } from 'react-select/async-creatable';
 
 import { Icon } from '../Icon/Icon';
 import { Spinner } from '../Spinner/Spinner';
-import { css, cx } from '@emotion/css';
 import resetSelectStyles from './resetSelectStyles';
 import { SelectMenu, SelectMenuOptions } from './SelectMenu';
 import { IndicatorsContainer } from './IndicatorsContainer';
@@ -20,7 +19,7 @@ import { MultiValueContainer, MultiValueRemove } from './MultiValue';
 import { useTheme2 } from '../../themes';
 import { getSelectStyles } from './getSelectStyles';
 import { cleanValue, findSelectedValue } from './utils';
-import { SelectBaseProps, SelectValue } from './types';
+import { ActionMeta, SelectBaseProps, SelectValue } from './types';
 import { deprecationWarning } from '@grafana/data';
 
 interface ExtraValuesIndicatorProps {
@@ -146,11 +145,11 @@ export function SelectBase<T>({
   const theme = useTheme2();
   const styles = getSelectStyles(theme);
   const onChangeWithEmpty = useCallback(
-    (value: SelectValue<T>) => {
+    (value: SelectValue<T>, action: ActionMeta) => {
       if (isMulti && (value === undefined || value === null)) {
-        return onChange([]);
+        return onChange([], action);
       }
-      onChange(value);
+      onChange(value, action);
     },
     [isMulti, onChange]
   );
@@ -251,28 +250,6 @@ export function SelectBase<T>({
           MenuList: SelectMenu,
           Group: SelectOptionGroup,
           ValueContainer,
-          Placeholder(props: any) {
-            return (
-              <div
-                {...props.innerProps}
-                className={cx(
-                  css(props.getStyles('placeholder', props)),
-                  css`
-                    display: inline-block;
-                    color: ${theme.colors.text.disabled};
-                    position: absolute;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    box-sizing: border-box;
-                    line-height: 1;
-                    white-space: nowrap;
-                  `
-                )}
-              >
-                {props.children}
-              </div>
-            );
-          },
           IndicatorsContainer(props: any) {
             const { selectProps } = props;
             const { value, showAllSelectedWhenOpen, maxVisibleValues, menuIsOpen } = selectProps;
@@ -341,7 +318,7 @@ export function SelectBase<T>({
           ...components,
         }}
         styles={{
-          ...resetSelectStyles(),
+          ...resetSelectStyles(theme),
           menuPortal: (base: any) => ({
             ...base,
             zIndex: theme.zIndex.portal,
@@ -355,8 +332,8 @@ export function SelectBase<T>({
             zIndex: theme.zIndex.dropdown,
           }),
           container: () => ({
-            position: 'relative',
-            width: width ? `${8 * width}px` : '100%',
+            width: width ? theme.spacing(width) : '100%',
+            display: width === 'auto' ? 'inline-flex' : 'flex',
           }),
           option: (provided: any, state: any) => ({
             ...provided,

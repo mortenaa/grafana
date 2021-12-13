@@ -4,9 +4,9 @@ import { iconItem } from './elements/icon';
 import { textBoxItem } from './elements/textBox';
 
 export const DEFAULT_CANVAS_ELEMENT_CONFIG: CanvasElementOptions = {
+  ...iconItem.getNewOptions(),
   type: iconItem.id,
-  config: { ...iconItem.defaultConfig },
-  placement: { ...iconItem.defaultSize },
+  name: `Element 1`,
 };
 
 export const canvasElementRegistry = new Registry<CanvasElementItem>(() => [

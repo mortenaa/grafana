@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/grafana/grafana/pkg/services/sqlstore"
-
 	"github.com/grafana/grafana/pkg/bus"
 	"github.com/grafana/grafana/pkg/components/simplejson"
 	"github.com/grafana/grafana/pkg/models"
+	"github.com/grafana/grafana/pkg/plugins/manager/loader"
+	"github.com/grafana/grafana/pkg/plugins/manager/signature"
+	"github.com/grafana/grafana/pkg/services/sqlstore"
 	"github.com/grafana/grafana/pkg/setting"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func TestGetPluginDashboards(t *testing.T) {
 			},
 		},
 	}
-	pm := newManager(cfg, &sqlstore.SQLStore{}, &fakeBackendPluginManager{})
+	pm := newManager(cfg, nil, loader.New(nil, cfg, &signature.UnsignedPluginAuthorizer{Cfg: cfg}), &sqlstore.SQLStore{})
 	err := pm.init()
 	require.NoError(t, err)
 
@@ -48,7 +49,7 @@ func TestGetPluginDashboards(t *testing.T) {
 		return nil
 	})
 
-	dashboards, err := pm.GetPluginDashboards(1, "test-app")
+	dashboards, err := pm.GetPluginDashboards(context.Background(), 1, "test-app")
 	require.NoError(t, err)
 
 	require.Len(t, dashboards, 2)
