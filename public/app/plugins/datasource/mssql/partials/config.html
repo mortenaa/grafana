@@ -71,7 +71,7 @@
 
   <div class="gf-form max-width-30" ng-show="ctrl.showTlsConfig">
     <span class="gf-form-label width-15">TLS/SSL Root Certificate</span>
-    <input type="text" class="gf-form-input" style="width: 352px" ng-model='ctrl.current.jsonData.certificate'
+    <input type="text" class="gf-form-input" style="width: 352px" ng-model='ctrl.current.jsonData.sslRootCertFile'
            placeholder="TLS/SSL root certificate file"></input>
     <info-popover mode="right-absolute">
       Path to file containing the public key certificate of the CA that signed the SQL Server certificate. Needed when
@@ -81,7 +81,7 @@
 
   <div class="gf-form max-width-30" ng-show="ctrl.showTlsConfig">
     <span class="gf-form-label width-15">Hostname in server certificate</span>
-    <input type="text" class="gf-form-input" style="width: 352px" ng-model='ctrl.current.jsonData.hostNameInCertificate'
+    <input type="text" class="gf-form-input" style="width: 352px" ng-model='ctrl.current.jsonData.serverName'
            placeholder="Common Name (CN) in server certificate"></input>
     <info-popover mode="right-absolute">
       Specifies the Common Name (CN) in the server certificate. Default is the server host.

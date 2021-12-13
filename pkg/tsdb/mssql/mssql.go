@@ -156,11 +156,11 @@ func generateConnectionString(dsInfo sqleng.DataSourceInfo) (string, error) {
 		args = append(args, "port", addr.Port)
 	}
 
-	logger.Debug("Generating connection string", args...)
-	encrypt := dsInfo.JsonData.Get("encrypt").MustString("false")
-	tlsSkipVerify := dsInfo.JsonData.Get("tlsSkipVerify").MustBool(false)
-	hostNameInCertificate := dsInfo.JsonData.Get("hostNameInCertificate").MustString("")
-	certificate := dsInfo.JsonData.Get("certificate").MustString("")
+	logger.Debug("Generating connection string from", "args", dsInfo)
+	encrypt := dsInfo.JsonData.Encrypt
+	tlsSkipVerify := dsInfo.JsonData.TlsSkipVerify
+	hostNameInCertificate := dsInfo.JsonData.Servername
+	certificate := dsInfo.JsonData.RootCertFile
 	connStr := fmt.Sprintf("server=%s;database=%s;user id=%s;password=%s;",
 		addr.Host,
 		dsInfo.Database,
@@ -181,6 +181,7 @@ func generateConnectionString(dsInfo sqleng.DataSourceInfo) (string, error) {
 			connStr += fmt.Sprintf("certificate=%s;", certificate)
 		}
 	}
+	logger.Debug("connection", "value", connStr)
 	return connStr, nil
 }
 

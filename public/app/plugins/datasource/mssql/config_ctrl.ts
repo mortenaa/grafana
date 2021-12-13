@@ -12,16 +12,16 @@ export class MssqlConfigCtrl {
 
   onPasswordReset: ReturnType<typeof createResetHandler>;
   onPasswordChange: ReturnType<typeof createChangeHandler>;
-  showUserCredentials: boolean;
-  showTlsConfig: boolean;
+  showUserCredentials: boolean = false;
+  showTlsConfig: boolean = false;
 
   /** @ngInject */
   constructor($scope: any) {
     this.current = $scope.ctrl.current;
     this.current.jsonData.encrypt = this.current.jsonData.encrypt || 'false';
-    this.current.jsonData.certificate = this.current.jsonData.certificate || '';
+    this.current.jsonData.sslRootCertFile = this.current.jsonData.sslRootCertFile || '';
     this.current.jsonData.tlsSkipVerify = this.current.jsonData.tlsSkipVerify || false;
-    this.current.jsonData.hostNameInCertificate = this.current.jsonData.hostNameInCertificate || '';
+    this.current.jsonData.serverName = this.current.jsonData.serverName || '';
     this.current.jsonData.authenticationType = this.current.jsonData.authenticationType || 'SQL Server Authentication';
     this.onPasswordReset = createResetHandler(this, PasswordFieldEnum.Password);
     this.onPasswordChange = createChangeHandler(this, PasswordFieldEnum.Password);

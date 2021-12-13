@@ -10,3 +10,9 @@
       MSSQL_PASSWORD: Password!
     ports:
       - "1434:1433"
+
+  fake-mssql-tls-data:
+    image: grafana/fake-data-gen
+    environment:
+      FD_DATASOURCE: mssql_tls
+      FD_PORT: 1434
